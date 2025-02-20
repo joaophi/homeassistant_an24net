@@ -1,0 +1,13 @@
+{
+  "domain": "intelbras",
+  "name": "Alarme Intelbras",
+  "codeowners": ["@joaophi"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://www.home-assistant.io/integrations/intelbras",
+  "homekit": {},
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "ssdp": [],
+  "zeroconf": []
+}
