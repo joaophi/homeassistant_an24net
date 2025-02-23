@@ -6,8 +6,8 @@ from homeassistant.components.alarm_control_panel import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
-# from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo, format_mac
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -17,7 +17,7 @@ from .coordinator import AMTCoordinator
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry[AMTCoordinator],
-    async_add_entities,#: AddConfigEntryEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up entry."""
     async_add_entities([AMTAlarm(config_entry.runtime_data)])
@@ -26,7 +26,7 @@ async def async_setup_entry(
 class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):
     def __init__(self, coordinator: AMTCoordinator) -> None:
         CoordinatorEntity.__init__(self, coordinator, None)
-        self._attr_unique_id = coordinator.servidor.mac.hex("_")
+        self._attr_unique_id = format_mac(coordinator.client.mac.hex(":"))
         self._attr_device_info = DeviceInfo(
             identifiers={
                 # Serial numbers are unique identifiers within a specific domain
@@ -48,13 +48,13 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):
             self.supported_features |= AlarmControlPanelEntityFeature.ARM_HOME
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
-        pass
+        await self.coordinator.client.arm(code)
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
-        pass
+        await self.coordinator.client.arm(code, stay=True)
 
     async def async_alarm_trigger(self, code: str | None = None) -> None:
-        pass
+        await self.coordinator.client.panic(code)
 
     @callback
     def _handle_coordinator_update(self) -> None:

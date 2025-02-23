@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 START_COMMAND = 0x94
 MAC_COMMAND = 0xC4
@@ -14,12 +15,13 @@ CONNECTION_COMMAND = 0xE5
 
 
 class MyHomeCommands:
-    ARM = (0x41, b"\x41")
-    DISARM = (0x44, b"")
-    PANIC_AUDIBLE = (0x45, b"\x01")
-    PANIC_SILENT = (0x45, b"\x00")
-    STATUS = (0x5A, b"")
-    MESSAGES = (0xF1, b"")
+    ARM = (0x41, lambda: b"\x41")
+    BYPASS = (0x42, bytes)
+    DISARM = (0x44, bytes)
+    PANIC = (0x45, lambda audible: b"\x01" if audible else b"\x00")
+    STATUS = (0x5A, bytes)
+    MESSAGES = (0xF1, bytes)
+    PGM = (0x50, lambda enable: b"\x4c\x31" if enable else b"\x44\x31")
 
 
 def my_home_to_str(data: bytes) -> str:
@@ -33,14 +35,12 @@ def my_home_to_str(data: bytes) -> str:
             command = "ARM"
         elif command == MyHomeCommands.DISARM[0]:
             command = "DISARM"
-        elif (
-            command == MyHomeCommands.PANIC_AUDIBLE[0]
-            and data == MyHomeCommands.PANIC_AUDIBLE[1]
+        elif command == MyHomeCommands.PANIC[0] and data == MyHomeCommands.PANIC[1](
+            audible=True
         ):
             command = "PANIC_AUDIBLE"
-        elif (
-            command == MyHomeCommands.PANIC_SILENT[0]
-            and data == MyHomeCommands.PANIC_SILENT[1]
+        elif command == MyHomeCommands.PANIC[0] and data == MyHomeCommands.PANIC[1](
+            audible=False
         ):
             command = "PANIC_SILENT"
         elif command == MyHomeCommands.STATUS[0]:
@@ -129,7 +129,7 @@ def encrypt(data: bytes, key: int) -> bytes:
 def parse_status(data: bytes) -> dict:
     open_zones = int.from_bytes(data[:3], byteorder="little")
     violated_zones = int.from_bytes(data[6:9], byteorder="little")
-    anulated_zones = int.from_bytes(data[12:15], byteorder="little")
+    annulled_zones = int.from_bytes(data[12:15], byteorder="little")
     stay_zones = int.from_bytes(data[50:53], byteorder="little")
     enabled_zones = int.from_bytes(data[47:50], byteorder="little")
     low_battery = int.from_bytes(data[38:41], byteorder="little")
@@ -151,14 +151,14 @@ def parse_status(data: bytes) -> dict:
             {
                 "open": bool(open_zones & (1 << i)),
                 "violated": bool(violated_zones & (1 << i)),
-                "anulated": bool(anulated_zones & (1 << i)),
+                "annulled": bool(annulled_zones & (1 << i)),
                 "stay": bool(stay_zones & (1 << i)),
                 "enabled": bool(enabled_zones & (1 << i)),
                 "low_battery": bool(low_battery & (1 << i)),
             }
             for i in range(24)
         ],
-        "pgm": bool(data[37] & (1 << 7)),
+        "pgm": bool(data[37] & (1 << 6)),
         "no_energy": bool(data[28] & (1 << 0)),
     }
 
@@ -202,9 +202,6 @@ def parse_char(char: int) -> str:
 
 
 def parse_sync(data: bytes) -> tuple[int, list[str]]:
-    if data[1] != MyHomeCommands.MESSAGES[0] or data[7] != 0xE0:
-        raise Exception("Invalid data")
-
     type = data[6]
     result = []
     buffer = ""
@@ -225,6 +222,14 @@ def parse_sync(data: bytes) -> tuple[int, list[str]]:
 
 def my_home_data(password: str, command: int, data: bytes = b"") -> bytes:
     return bytes([0x21, *map(ord, password), command, *data, 0x21])
+
+
+def null_zone_data(zones: list[int]) -> bytes:
+    data = [0] * 3
+    for i in zones:
+        x = i - 1
+        data[x // 8] |= 1 << (x % 8)
+    return bytes(data)
 
 
 SYNC_NAME = 0x31
@@ -256,6 +261,13 @@ def checksum(data: bytes) -> int:
     return i ^ 255
 
 
+class ChecksumError(Exception):
+    def __init__(self, data: bytes, checksum: int) -> None:
+        self.data = data
+        self.checksum = checksum
+        super().__init__(f"Invalid checksum: {data.hex(':')} != {checksum:02x}")
+
+
 async def read_command(reader: asyncio.StreamReader):
     [length] = await reader.read(1)
 
@@ -267,7 +279,7 @@ async def read_command(reader: asyncio.StreamReader):
     data = await reader.read(length)
     [checksum_] = await reader.read(1)
     if checksum_ != checksum(bytes([length, *data])):
-        raise Exception("Invalid checksum")
+        raise ChecksumError([length, *data], checksum_)
 
     return data[0], data[1:]
 
@@ -275,7 +287,7 @@ async def read_command(reader: asyncio.StreamReader):
 async def send_command(
     writer: asyncio.StreamWriter, command: int, data: bytes = b"", key=None
 ):
-    if command == PING_COMMAND or command == OK:
+    if command in (PING_COMMAND, OK):
         data = bytes([command])
     else:
         data = create_command(command, data)
@@ -287,52 +299,141 @@ async def send_command(
     await writer.drain()
 
 
-class ServidorAMT:
-    def __init__(self, host, port, mac, pin):
+class OpenZoneError(Exception): ...
+
+
+class ClientAMT:
+    def __init__(self, host: str, port: int, mac: str, pin: str) -> None:
         self.host = host
         self.port = port
         self.mac = bytes.fromhex(mac.replace(":", ""))
         self.pin = pin
-        self._connection = None
+        self._send = asyncio.Queue[tuple[int, bytes, asyncio.Future[None]]]()
+        self._receive: list[asyncio.Queue[tuple[int, bytes]]] = []
+        self._status = None
+        self._request_lock = asyncio.Lock()
 
-    async def connect(self):
-        self._connection = await asyncio.open_connection(self.host, self.port)
+    async def run(self):
+        async def read(reader: asyncio.StreamReader):
+            while True:
+                command, data = await read_command(reader)
+                for queue in self._receive:
+                    with contextlib.suppress(asyncio.QueueFull):
+                        queue.put_nowait((command, data))
 
-        # await send_command(self._connection[1], XOR_COMMAND)
-        # key, _ = await read_command(self._connection[0])
-        key = None
+        async def write(writer: asyncio.StreamWriter):
+            while True:
+                command, data, future = await self._send.get()
+                try:
+                    await send_command(writer, command, data)
+                    future.set_result(None)
+                except Exception as ex:
+                    future.set_exception(ex)
+                    raise
 
-        data = connection_data(self.mac)
-        await send_command(self._connection[1], CONNECTION_COMMAND, data, key)
+        while True:
+            try:
+                async with asyncio.timeout(5):
+                    reader, writer = await asyncio.open_connection(self.host, self.port)
 
-        [result] = await self._connection[0].read(1)
-        if result in (228, 253):
-            raise Exception("Central não conectada")
-        if result == 232:
-            raise Exception("Outro dispositivo conectado")
-        if result != 230:
-            raise Exception("Erro")
+                await send_command(writer, XOR_COMMAND)
+                key, _ = await read_command(reader)
 
-        [result] = await self._connection[0].read(1)
+                data = connection_data(self.mac)
+                await send_command(writer, CONNECTION_COMMAND, data, key)
+
+                [result] = await reader.read(1)
+                if result in (228, 253):
+                    raise Exception("Central não conectada")
+                if result == 232:
+                    raise Exception("Outro dispositivo conectado")
+                if result != 230:
+                    raise Exception("Erro")
+
+                _ = await reader.read(1)
+
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(read(reader))
+                    tg.create_task(write(writer))
+            except Exception as ex:
+                while not self._send.empty():
+                    _, _, future = self._send.get_nowait()
+                    future.set_exception(ex)
+            await asyncio.sleep(5)
+
+    async def _request(self, command: int, data: bytes = b"") -> bytes:
+        async with self._request_lock:
+            queue = asyncio.Queue[tuple[int, bytes]]()
+            self._receive.append(queue)
+            try:
+                future = asyncio.Future()
+                self._send.put_nowait(
+                    (
+                        command,
+                        data,
+                        future,
+                    )
+                )
+                async with asyncio.timeout(10):
+                    await future
+                    while True:
+                        _command, _data = await queue.get()
+                        if _command == command:
+                            return _data
+            finally:
+                self._receive.remove(queue)
+
+    async def arm(self, password: str, *, stay: bool = False) -> None:
+        data = await self._request(
+            MY_HOME,
+            my_home_data(password, MyHomeCommands.ARM[0], MyHomeCommands.ARM[1]()),
+        )
+        if data == b"\xe4":
+            raise OpenZoneError
+
+    async def disarm(self, password: str) -> None:
+        await self._request(
+            MY_HOME,
+            my_home_data(
+                password, MyHomeCommands.DISARM[0], MyHomeCommands.DISARM[1]()
+            ),
+        )
+
+    async def panic(self, password: str, *, silent: bool = False) -> None:
+        await self._request(
+            MY_HOME,
+            my_home_data(
+                password,
+                MyHomeCommands.PANIC[0],
+                MyHomeCommands.PANIC[1](not silent),
+            ),
+        )
+
+    async def pgm(self, *, enable: bool = True) -> None:
+        await self._request(
+            MY_HOME,
+            my_home_data(
+                self.pin, MyHomeCommands.PGM[0], MyHomeCommands.PGM[1](enable)
+            ),
+        )
+
+    async def bypass(self, zones: list[int]) -> None:
+        await self._request(
+            MY_HOME,
+            my_home_data(self.pin, MyHomeCommands.BYPASS[0], null_zone_data(zones)),
+        )
 
     async def sync(self, type: int, indexes: bytes = bytes([0x00])) -> list[str]:
-        await send_command(
-            self._connection[1],
-            MY_HOME,
-            my_home_data(self.pin, 0x00, sync_data(type, indexes)),
+        data = await self._request(
+            MY_HOME, my_home_data(self.pin, 0x00, sync_data(type, indexes))
         )
-        _, data = await read_command(self._connection[0])
         return parse_sync(data)[1]
 
     async def status(self) -> dict:
-        await send_command(
-            self._connection[1],
+        data = await self._request(
             MY_HOME,
-            my_home_data(self.pin, MyHomeCommands.STATUS[0]),
+            my_home_data(
+                self.pin, MyHomeCommands.STATUS[0], MyHomeCommands.STATUS[1]()
+            ),
         )
-        _, data = await read_command(self._connection[0])
         return parse_status(data)
-
-    def disconnect(self):
-        self._connection[1].close()
-        self._connection = None
