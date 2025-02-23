@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from itertools import batched
 import logging
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .protocol import SYNC_NAME, SYNC_USER, SYNC_ZONE, ServidorAMT
+from .protocol import SYNC_NAME, SYNC_ZONE, ClientAMT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class AMTCoordinator(DataUpdateCoordinator):
     def __init__(
         self,
         hass: HomeAssistant,
-        servidor: ServidorAMT,
+        client: ClientAMT,
     ) -> None:
         super().__init__(
             hass,
@@ -26,32 +27,25 @@ class AMTCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=5),
             always_update=True,
         )
-        self.servidor = servidor
+        self.client = client
         self.__messages = {}
 
     async def _async_setup(self) -> None:
-        await self.servidor.connect()
-
-        [self.__messages["name"]] = await self.servidor.sync(SYNC_NAME)
+        [self.__messages["name"]] = await self.client.sync(SYNC_NAME)
 
         self.__messages["zones"] = []
-        for i in range(3):
-            data = await self.servidor.sync(
+        for indexes in batched(range(24), n=8):
+            data = await self.client.sync(
                 SYNC_ZONE,
-                bytes(range(i * 8, (i * 8) + 8)),
+                bytes(indexes),
             )
             self.__messages["zones"].extend(data)
 
-        self.__messages["users"] = []
-        for i in range(3):
-            data = await self.servidor.sync(
-                SYNC_USER,
-                bytes(range(i * 10, (i * 10) + 10)),
-            )
-            self.__messages["users"].extend(data)
-
     async def _async_update_data(self):
-        data = await self.servidor.status()
+        try:
+            data = await self.client.status()
+        except Exception as ex:
+            raise UpdateFailed("Erro ao atualizar os dados") from ex
         return {
             "status": data,
             "messages": self.__messages,

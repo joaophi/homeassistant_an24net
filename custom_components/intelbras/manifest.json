@@ -9,6 +9,5 @@
   "iot_class": "cloud_polling",
   "requirements": [],
   "ssdp": [],
-  "zeroconf": [],
-  "version": "0.0.1"
+  "zeroconf": []
 }

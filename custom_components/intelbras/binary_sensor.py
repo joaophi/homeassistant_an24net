@@ -4,8 +4,8 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
-# from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo, format_mac
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -15,28 +15,46 @@ from .coordinator import AMTCoordinator
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry[AMTCoordinator],
-    async_add_entities,#: AddConfigEntryEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up entry."""
     async_add_entities([AMTEnergySensor(config_entry.runtime_data)])
-    for i in range(len(config_entry.runtime_data.data["status"]["zones"])):
-        if config_entry.runtime_data.data["status"]["zones"][i]["enabled"]:
+
+    enabled_zones: set[int] = set()
+
+    def _check_device() -> None:
+        current_devices = {
+            i
+            for i, zone in enumerate(config_entry.runtime_data.data["status"]["zones"])
+            if zone["enabled"]
+        }
+        new_devices = current_devices - enabled_zones
+        enabled_zones.update(new_devices)
+        for i in new_devices:
             async_add_entities(
-                [
-                    AMTOpenSensor(config_entry.runtime_data, i),
-                    AMTBatterySensor(config_entry.runtime_data, i),
+                AMTSensor(config_entry.runtime_data, i, prop, device_class, enabled)
+                for prop, device_class, enabled in [
+                    ("open", BinarySensorDeviceClass.OPENING, True),
+                    ("violated", BinarySensorDeviceClass.PROBLEM, False),
+                    ("stay", None, False),
+                    ("low_battery", BinarySensorDeviceClass.BATTERY, True),
                 ]
             )
+
+    _check_device()
+    config_entry.async_on_unload(
+        config_entry.runtime_data.async_add_listener(_check_device)
+    )
 
 
 class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
     def __init__(self, coordinator: AMTCoordinator) -> None:
         CoordinatorEntity.__init__(self, coordinator)
-        self._attr_unique_id = coordinator.servidor.mac.hex("_") + "_energy"
+        self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_energy"
         self._attr_device_info = DeviceInfo(
             identifiers={
                 # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, coordinator.servidor.mac.hex("_"))
+                (DOMAIN, format_mac(coordinator.client.mac.hex(":")))
             },
             name=coordinator.data["messages"]["name"],
         )
@@ -50,64 +68,36 @@ class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
         self.async_write_ha_state()
 
 
-class AMTOpenSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
-    def __init__(self, coordinator: AMTCoordinator, index: int) -> None:
+class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
+    def __init__(
+        self,
+        coordinator: AMTCoordinator,
+        index: int,
+        property: str,
+        device_class: BinarySensorDeviceClass,
+        enabled: bool,
+    ) -> None:
         CoordinatorEntity.__init__(self, coordinator, context=index)
+        mac = format_mac(coordinator.client.mac.hex(":"))
+        zone = coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}"
         self._index = index
-        self._attr_unique_id = (
-            f"{coordinator.servidor.mac.hex('_')}_zone_{index + 1:02}"
-        )
+        self._property = property
+        self._attr_unique_id = f"{mac}_zone_{index + 1:02}_{property}"
         self._attr_device_info = DeviceInfo(
             identifiers={
                 # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, self._attr_unique_id)
+                (DOMAIN, f"{mac}_zone_{index + 1:02}")
             },
-            name=coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}",
-            via_device=(DOMAIN, coordinator.servidor.mac.hex("_")),
+            name=zone,
+            via_device=(DOMAIN, mac),
         )
-        self._attr_name = (
-            coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}"
-        )
-        self._attr_device_class = BinarySensorDeviceClass.OPENING
+        self._attr_name = f"{zone} {property.replace('_', ' ')}"
+        self._attr_device_class = device_class
+        self._attr_entity_registry_enabled_default = enabled
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         state = self.coordinator.data["status"]["zones"][self._index]
-        self._attr_is_on = state["open"]
-        self._attr_extra_state_attributes = {
-            "violated": state["violated"],
-            "anulated": state["anulated"],
-            "stay": state["stay"],
-            "enabled": state["enabled"],
-        }
-        self.async_write_ha_state()
-
-
-class AMTBatterySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
-    def __init__(self, coordinator: AMTCoordinator, index: int) -> None:
-        CoordinatorEntity.__init__(self, coordinator, context=index)
-        self._index = index
-        self._attr_unique_id = (
-            f"{coordinator.servidor.mac.hex('_')}_zone_{index + 1:02}_battery"
-        )
-        self._attr_device_info = DeviceInfo(
-            identifiers={
-                # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, f"{coordinator.servidor.mac.hex('_')}_zone_{index + 1:02}")
-            },
-            name=coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}",
-            via_device=(DOMAIN, coordinator.servidor.mac.hex("_")),
-        )
-        self._attr_device_class = BinarySensorDeviceClass.BATTERY
-        self._attr_name = (
-            coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}"
-        ) + " Battery"
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self._attr_is_on = self.coordinator.data["status"]["zones"][self._index][
-            "low_battery"
-        ]
+        self._attr_is_on = state[self._property]
         self.async_write_ha_state()
