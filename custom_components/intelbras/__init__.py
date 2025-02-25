@@ -29,7 +29,7 @@ async def async_setup_entry(
     mac = format_mac(entry.data["mac"])
     enabled_zones: set[int] = {
         i
-        for i in range(8)
+        for i in range(24)
         if (
             device_registry.async_get_device(
                 identifiers={(DOMAIN, f"{mac}_zone_{i + 1:02}")}
