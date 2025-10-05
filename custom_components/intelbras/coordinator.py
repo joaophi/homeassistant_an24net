@@ -2,19 +2,30 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from itertools import batched
-import logging
+from typing import TypedDict
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .protocol import SYNC_NAME, SYNC_ZONE, ClientAMT
+from .protocol import SYNC_NAME, SYNC_ZONE, ClientAMT, Status
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class AMTCoordinator(DataUpdateCoordinator):
+class Messages(TypedDict):
+    name: str
+    zones: list[str]
+
+
+class Data(TypedDict):
+    messages: Messages
+    status: Status
+
+
+class AMTCoordinator(DataUpdateCoordinator[Data]):
     def __init__(
         self,
         hass: HomeAssistant,
@@ -28,20 +39,25 @@ class AMTCoordinator(DataUpdateCoordinator):
             always_update=True,
         )
         self.client = client
-        self.__messages = {}
+        self.__messages: Messages = {
+            "name": "AN24Net",
+            "zones": [f"Zone {index + 1:02}" for index in range(24)],
+        }
 
     async def _async_setup(self) -> None:
-        [self.__messages["name"]] = await self.client.sync(SYNC_NAME)
+        [name] = await self.client.sync(SYNC_NAME)
 
-        self.__messages["zones"] = []
+        zones: list[str] = []
         for indexes in batched(range(24), n=8):
-            data = await self.client.sync(
-                SYNC_ZONE,
-                bytes(indexes),
-            )
-            self.__messages["zones"].extend(data)
+            data = await self.client.sync(SYNC_ZONE, bytes(indexes))
+            zones.extend(data)
 
-    async def _async_update_data(self):
+        self.__messages: Messages = {
+            "name": name,
+            "zones": zones,
+        }
+
+    async def _async_update_data(self) -> Data:
         try:
             data = await self.client.status()
         except Exception as ex:

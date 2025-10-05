@@ -1,0 +1,14 @@
+[project]
+name = "homeassistant-an24net"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "homeassistant>=2025.4.4",
+]
+
+[tool.pyright]
+include = ["custom_components/an24net"]
+typeCheckingMode = "strict"

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from asyncio import TaskGroup
 import logging
+from asyncio import TaskGroup
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_PIN, CONF_PORT
 from homeassistant.helpers.device_registry import format_mac
@@ -27,7 +26,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-class ConfigFlow(ConfigFlow, domain=DOMAIN):
+class AN24NetConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Alarme Intelbras."""
 
     VERSION = 1
