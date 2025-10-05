@@ -1,5 +1,7 @@
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
+)
+from homeassistant.components.alarm_control_panel.const import (
     AlarmControlPanelEntityFeature,
     AlarmControlPanelState,
     CodeFormat,
@@ -25,7 +27,7 @@ async def async_setup_entry(
 
 class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):
     def __init__(self, coordinator: AMTCoordinator) -> None:
-        CoordinatorEntity.__init__(self, coordinator, None)
+        super().__init__(coordinator)
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":"))
         self._attr_device_info = DeviceInfo(
             identifiers={
@@ -48,13 +50,22 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):
             self.supported_features |= AlarmControlPanelEntityFeature.ARM_HOME
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
+        if code is None:
+            raise ValueError("Code is required to arm the alarm")
         await self.coordinator.client.arm(code)
+        await self.coordinator.async_request_refresh()
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
+        if code is None:
+            raise ValueError("Code is required to arm the alarm")
         await self.coordinator.client.arm(code, stay=True)
+        await self.coordinator.async_request_refresh()
 
     async def async_alarm_trigger(self, code: str | None = None) -> None:
+        if code is None:
+            raise ValueError("Code is required to trigger the alarm")
         await self.coordinator.client.panic(code)
+        await self.coordinator.async_request_refresh()
 
     @callback
     def _handle_coordinator_update(self) -> None:

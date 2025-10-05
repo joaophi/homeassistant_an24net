@@ -40,7 +40,7 @@ async def async_setup_entry(
 
 class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
     def __init__(self, coordinator: AMTCoordinator) -> None:
-        CoordinatorEntity.__init__(self, coordinator)
+        super().__init__(coordinator)
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_pgm"
         self._attr_device_info = DeviceInfo(
             identifiers={
@@ -54,11 +54,11 @@ class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
-        await self.coordinator.client.pgm(enable=True)
+        await self.coordinator.client.pgm(on=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
-        await self.coordinator.client.pgm(enable=False)
+        await self.coordinator.client.pgm(on=False)
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -69,7 +69,7 @@ class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
 
 class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
     def __init__(self, coordinator: AMTCoordinator, index: int) -> None:
-        CoordinatorEntity.__init__(self, coordinator, context=index)
+        super().__init__(coordinator, context=index)
         mac = format_mac(coordinator.client.mac.hex(":"))
         zone = coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}"
         self._index = index

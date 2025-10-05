@@ -49,7 +49,7 @@ async def async_setup_entry(
 
 class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
     def __init__(self, coordinator: AMTCoordinator) -> None:
-        CoordinatorEntity.__init__(self, coordinator)
+        super().__init__(coordinator)
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_energy"
         self._attr_device_info = DeviceInfo(
             identifiers={
@@ -74,10 +74,10 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
         coordinator: AMTCoordinator,
         index: int,
         property: str,
-        device_class: BinarySensorDeviceClass,
+        device_class: BinarySensorDeviceClass | None,
         enabled: bool,
     ) -> None:
-        CoordinatorEntity.__init__(self, coordinator, context=index)
+        super().__init__(coordinator, context=index)
         mac = format_mac(coordinator.client.mac.hex(":"))
         zone = coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}"
         self._index = index

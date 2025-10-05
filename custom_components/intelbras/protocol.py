@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from typing import TypedDict
 
 START_COMMAND = 0x94
 MAC_COMMAND = 0xC4
@@ -14,14 +15,22 @@ XOR_COMMAND = 0xFB
 CONNECTION_COMMAND = 0xE5
 
 
+def panic(*, audible: bool) -> bytes:
+    return b"\x01" if audible else b"\x00"
+
+
+def pgm(*, on: bool) -> bytes:
+    return b"\x4c\x31" if on else b"\x44\x31"
+
+
 class MyHomeCommands:
     ARM = (0x41, lambda: b"\x41")
     BYPASS = (0x42, bytes)
     DISARM = (0x44, bytes)
-    PANIC = (0x45, lambda audible: b"\x01" if audible else b"\x00")
+    PANIC = (0x45, panic)
     STATUS = (0x5A, bytes)
     MESSAGES = (0xF1, bytes)
-    PGM = (0x50, lambda enable: b"\x4c\x31" if enable else b"\x44\x31")
+    PGM = (0x50, pgm)
 
 
 def my_home_to_str(data: bytes) -> str:
@@ -64,14 +73,16 @@ def my_home_to_str(data: bytes) -> str:
             sync = "USER"
         elif type == SYNC_ZONE:
             sync = "ZONE"
+        else:
+            sync = f"0x{type:02x}"
         return f"SYNC = {sync}, MESSAGES = {messages}"
-    except:
+    except Exception:
         pass
 
     try:
         status = parse_status(data)
-        return status
-    except:
+        return str(status)
+    except Exception:
         pass
 
     return data.hex(":")
@@ -126,7 +137,36 @@ def encrypt(data: bytes, key: int) -> bytes:
     return bytes([x ^ key for x in data])
 
 
-def parse_status(data: bytes) -> dict:
+class BatteryStatus(TypedDict):
+    envoltorio: bool
+    primeiroNivel: bool
+    segundoNivel: bool
+    terceiroNivel: bool
+    envoltorioPisc: bool
+
+
+class ZoneStatus(TypedDict):
+    open: bool
+    violated: bool
+    annulled: bool
+    stay: bool
+    enabled: bool
+    low_battery: bool
+
+
+class Status(TypedDict):
+    version: int
+    partitionedPanel: bool
+    partitionAArmed: bool
+    partitionBArmed: bool
+    sirenTriggered: bool
+    battery: BatteryStatus
+    zones: list[ZoneStatus]
+    pgm: bool
+    no_energy: bool
+
+
+def parse_status(data: bytes) -> Status:
     open_zones = int.from_bytes(data[:3], byteorder="little")
     violated_zones = int.from_bytes(data[6:9], byteorder="little")
     annulled_zones = int.from_bytes(data[12:15], byteorder="little")
@@ -203,7 +243,7 @@ def parse_char(char: int) -> str:
 
 def parse_sync(data: bytes) -> tuple[int, list[str]]:
     type = data[6]
-    result = []
+    result: list[str] = []
     buffer = ""
     idx = 9
     while idx < len(data):
@@ -279,13 +319,16 @@ async def read_command(reader: asyncio.StreamReader):
     data = await reader.read(length)
     [checksum_] = await reader.read(1)
     if checksum_ != checksum(bytes([length, *data])):
-        raise ChecksumError([length, *data], checksum_)
+        raise ChecksumError(bytes([length, *data]), checksum_)
 
     return data[0], data[1:]
 
 
 async def send_command(
-    writer: asyncio.StreamWriter, command: int, data: bytes = b"", key=None
+    writer: asyncio.StreamWriter,
+    command: int,
+    data: bytes = b"",
+    key: int | None = None,
 ):
     if command in (PING_COMMAND, OK):
         data = bytes([command])
@@ -366,7 +409,7 @@ class ClientAMT:
             queue = asyncio.Queue[tuple[int, bytes]]()
             self._receive.append(queue)
             try:
-                future = asyncio.Future()
+                future = asyncio.Future[None]()
                 self._send.put_nowait(
                     (
                         command,
@@ -405,16 +448,14 @@ class ClientAMT:
             my_home_data(
                 password,
                 MyHomeCommands.PANIC[0],
-                MyHomeCommands.PANIC[1](not silent),
+                MyHomeCommands.PANIC[1](audible=not silent),
             ),
         )
 
-    async def pgm(self, *, enable: bool = True) -> None:
+    async def pgm(self, *, on: bool = True) -> None:
         await self._request(
             MY_HOME,
-            my_home_data(
-                self.pin, MyHomeCommands.PGM[0], MyHomeCommands.PGM[1](enable)
-            ),
+            my_home_data(self.pin, MyHomeCommands.PGM[0], MyHomeCommands.PGM[1](on=on)),
         )
 
     async def bypass(self, zones: list[int]) -> None:
@@ -429,7 +470,7 @@ class ClientAMT:
         )
         return parse_sync(data)[1]
 
-    async def status(self) -> dict:
+    async def status(self) -> Status:
         data = await self._request(
             MY_HOME,
             my_home_data(
