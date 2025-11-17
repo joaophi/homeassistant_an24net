@@ -42,9 +42,9 @@ async def async_setup_entry(
             )
 
     _check_device()
-    config_entry.async_on_unload(
-        config_entry.runtime_data.async_add_listener(_check_device)
-    )
+    # config_entry.async_on_unload(
+    #     config_entry.runtime_data.async_add_listener(_check_device)
+    # )
 
 
 class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
