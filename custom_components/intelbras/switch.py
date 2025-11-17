@@ -33,9 +33,9 @@ async def async_setup_entry(
             async_add_entities([AMTAnnulledSwitch(config_entry.runtime_data, i)])
 
     _check_device()
-    config_entry.async_on_unload(
-        config_entry.runtime_data.async_add_listener(_check_device)
-    )
+    # config_entry.async_on_unload(
+    #     config_entry.runtime_data.async_add_listener(_check_device)
+    # )
 
 
 class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
