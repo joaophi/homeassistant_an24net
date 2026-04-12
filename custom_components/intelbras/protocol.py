@@ -344,6 +344,9 @@ async def send_command(
 class OpenZoneError(Exception): ...
 
 
+class WrongPasswordError(Exception): ...
+
+
 class ClientAMT:
     def __init__(self, host: str, port: int, mac: str, pin: str) -> None:
         self.host = host
@@ -433,19 +436,23 @@ class ClientAMT:
             MY_HOME,
             my_home_data(password, MyHomeCommands.ARM[0], MyHomeCommands.ARM[1]()),
         )
+        if data == b"\xe1":
+            raise WrongPasswordError
         if data == b"\xe4":
             raise OpenZoneError
 
     async def disarm(self, password: str) -> None:
-        await self._request(
+        data = await self._request(
             MY_HOME,
             my_home_data(
                 password, MyHomeCommands.DISARM[0], MyHomeCommands.DISARM[1]()
             ),
         )
+        if data == b"\xe1":
+            raise WrongPasswordError
 
     async def panic(self, password: str, *, silent: bool = False) -> None:
-        await self._request(
+        data = await self._request(
             MY_HOME,
             my_home_data(
                 password,
@@ -453,6 +460,8 @@ class ClientAMT:
                 MyHomeCommands.PANIC[1](audible=not silent),
             ),
         )
+        if data == b"\xe1":
+            raise WrongPasswordError
 
     async def pgm(self, *, on: bool = True) -> None:
         await self._request(

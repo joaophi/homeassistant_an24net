@@ -51,6 +51,9 @@
     "exceptions": {
         "open_zone": {
             "message": "Cannot arm: one or more zones are open"
+        },
+        "wrong_password": {
+            "message": "Wrong password"
         }
     }
 }
