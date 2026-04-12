@@ -16,11 +16,6 @@
                     "pin": "Código PIN",
                     "port": "Porta"
                 }
-            },
-            "reauth_confirm": {
-                "data": {
-                    "pin": "Código PIN"
-                }
             }
         }
     },
