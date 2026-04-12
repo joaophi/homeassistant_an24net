@@ -36,7 +36,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             _LOGGER,
             name="Alarme AMT",
             update_interval=timedelta(seconds=5),
-            always_update=False,
+            always_update=True,
         )
         self.client = client
         self.__messages: Messages = {
