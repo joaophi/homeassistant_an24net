@@ -36,7 +36,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             _LOGGER,
             name="Alarme AMT",
             update_interval=timedelta(seconds=5),
-            always_update=True,
+            always_update=False,
         )
         self.client = client
         self.__messages: Messages = {
@@ -45,17 +45,20 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         }
 
     async def _async_setup(self) -> None:
-        [name] = await self.client.sync(SYNC_NAME)
+        try:
+            [name] = await self.client.sync(SYNC_NAME)
 
-        zones: list[str] = []
-        for indexes in batched(range(24), n=8):
-            data = await self.client.sync(SYNC_ZONE, bytes(indexes))
-            zones.extend(data)
+            zones: list[str] = []
+            for indexes in batched(range(24), n=8):
+                data = await self.client.sync(SYNC_ZONE, bytes(indexes))
+                zones.extend(data)
 
-        self.__messages: Messages = {
-            "name": name,
-            "zones": zones,
-        }
+            self.__messages = {
+                "name": name,
+                "zones": zones,
+            }
+        except Exception:
+            _LOGGER.warning("Failed to fetch device names, using defaults")
 
     async def _async_update_data(self) -> Data:
         try:

@@ -5,9 +5,9 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+
 # from homeassistant.helpers import device_registry as dr
 # from homeassistant.helpers.device_registry import format_mac
-
 # from .const import DOMAIN
 from .coordinator import AMTCoordinator
 from .protocol import ClientAMT

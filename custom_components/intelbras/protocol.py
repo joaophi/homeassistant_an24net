@@ -280,7 +280,6 @@ SYNC_ZONE = 0x33
 def sync_data(type: int, indexes: bytes = b"\x00") -> bytes:
     data = bytes(
         [
-            # 0x00,
             0x00,
             0x00,
             MyHomeCommands.MESSAGES[0],  # COMANDO_MENSAGENS
@@ -302,22 +301,22 @@ def checksum(data: bytes) -> int:
 
 
 class ChecksumError(Exception):
-    def __init__(self, data: bytes, checksum: int) -> None:
+    def __init__(self, data: bytes, expected: int) -> None:
         self.data = data
-        self.checksum = checksum
-        super().__init__(f"Invalid checksum: {data.hex(':')} != {checksum:02x}")
+        self.checksum = expected
+        super().__init__(f"Invalid checksum: {data.hex(':')} != {expected:02x}")
 
 
-async def read_command(reader: asyncio.StreamReader):
-    [length] = await reader.read(1)
+async def read_command(reader: asyncio.StreamReader) -> tuple[int, bytes]:
+    [length] = await reader.readexactly(1)
 
     if length == PING_COMMAND:
         return PING_COMMAND, b""
     if length == OK:
         return OK, b""
 
-    data = await reader.read(length)
-    [checksum_] = await reader.read(1)
+    data = await reader.readexactly(length)
+    [checksum_] = await reader.readexactly(1)
     if checksum_ != checksum(bytes([length, *data])):
         raise ChecksumError(bytes([length, *data]), checksum_)
 
@@ -356,15 +355,15 @@ class ClientAMT:
         self._status = None
         self._request_lock = asyncio.Lock()
 
-    async def run(self):
-        async def read(reader: asyncio.StreamReader):
+    async def run(self) -> None:
+        async def read(reader: asyncio.StreamReader) -> None:
             while True:
                 command, data = await read_command(reader)
                 for queue in self._receive:
                     with contextlib.suppress(asyncio.QueueFull):
                         queue.put_nowait((command, data))
 
-        async def write(writer: asyncio.StreamWriter):
+        async def write(writer: asyncio.StreamWriter) -> None:
             while True:
                 command, data, future = await self._send.get()
                 try:
@@ -375,30 +374,33 @@ class ClientAMT:
                     raise
 
         while True:
+            writer: asyncio.StreamWriter | None = None
             try:
-                async with asyncio.timeout(5):
+                async with asyncio.timeout(10):
                     reader, writer = await asyncio.open_connection(self.host, self.port)
 
-                await send_command(writer, XOR_COMMAND)
-                key, _ = await read_command(reader)
+                    await send_command(writer, XOR_COMMAND)
+                    key, _ = await read_command(reader)
 
-                data = connection_data(self.mac)
-                await send_command(writer, CONNECTION_COMMAND, data, key)
+                    data = connection_data(self.mac)
+                    await send_command(writer, CONNECTION_COMMAND, data, key)
 
-                [result] = await reader.read(1)
-                if result in (228, 253):
-                    raise Exception("Central não conectada")
-                if result == 232:
-                    raise Exception("Outro dispositivo conectado")
-                if result != 230:
-                    raise Exception("Erro")
+                    [result] = await reader.readexactly(1)
+                    if result in (228, 253):
+                        raise Exception("Central não conectada")
+                    if result == 232:
+                        raise Exception("Outro dispositivo conectado")
+                    if result != 230:
+                        raise Exception("Erro")
 
-                _ = await reader.read(1)
+                    _ = await reader.readexactly(1)
 
                 async with asyncio.TaskGroup() as tg:
                     tg.create_task(read(reader))
                     tg.create_task(write(writer))
             except Exception as ex:
+                if writer is not None:
+                    writer.close()
                 while not self._send.empty():
                     _, _, future = self._send.get_nowait()
                     future.set_exception(ex)
@@ -406,7 +408,7 @@ class ClientAMT:
 
     async def _request(self, command: int, data: bytes = b"") -> bytes:
         async with self._request_lock:
-            queue = asyncio.Queue[tuple[int, bytes]]()
+            queue = asyncio.Queue[tuple[int, bytes]](maxsize=16)
             self._receive.append(queue)
             try:
                 future = asyncio.Future[None]()

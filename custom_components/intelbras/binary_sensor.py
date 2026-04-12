@@ -11,6 +11,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import AMTCoordinator
 
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -47,19 +49,19 @@ async def async_setup_entry(
     # )
 
 
-class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
+class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type: ignore[misc]
     def __init__(self, coordinator: AMTCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_energy"
         self._attr_device_info = DeviceInfo(
-            identifiers={
-                # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, format_mac(coordinator.client.mac.hex(":")))
-            },
+            identifiers={(DOMAIN, format_mac(coordinator.client.mac.hex(":")))},
             name=coordinator.data["messages"]["name"],
+            manufacturer="Intelbras",
+            model="AN-24 Net",
         )
         self._attr_device_class = BinarySensorDeviceClass.PLUG
-        self._attr_name = coordinator.data["messages"]["name"] + " Energy"
+        self._attr_has_entity_name = True
+        self._attr_name = "Energy"
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -68,7 +70,7 @@ class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
         self.async_write_ha_state()
 
 
-class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
+class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type: ignore[misc]
     def __init__(
         self,
         coordinator: AMTCoordinator,
@@ -84,14 +86,12 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):
         self._property = property
         self._attr_unique_id = f"{mac}_zone_{index + 1:02}_{property}"
         self._attr_device_info = DeviceInfo(
-            identifiers={
-                # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, f"{mac}_zone_{index + 1:02}")
-            },
+            identifiers={(DOMAIN, f"{mac}_zone_{index + 1:02}")},
             name=zone,
             via_device=(DOMAIN, mac),
         )
-        self._attr_name = f"{zone} {property.replace('_', ' ')}"
+        self._attr_has_entity_name = True
+        self._attr_name = property.replace("_", " ")
         self._attr_device_class = device_class
         self._attr_entity_registry_enabled_default = enabled
 

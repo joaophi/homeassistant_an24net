@@ -16,6 +16,11 @@
                     "pin": "PIN code",
                     "port": "Port"
                 }
+            },
+            "reauth_confirm": {
+                "data": {
+                    "pin": "PIN code"
+                }
             }
         }
     }
