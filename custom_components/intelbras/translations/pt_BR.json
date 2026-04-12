@@ -1,0 +1,56 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Dispositivo já configurado"
+        },
+        "error": {
+            "cannot_connect": "Falha ao conectar",
+            "invalid_auth": "Autenticação inválida",
+            "unknown": "Erro inesperado"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "host": "Host",
+                    "mac": "MAC",
+                    "pin": "Código PIN",
+                    "port": "Porta"
+                }
+            },
+            "reauth_confirm": {
+                "data": {
+                    "pin": "Código PIN"
+                }
+            }
+        }
+    },
+    "entity": {
+        "binary_sensor": {
+            "energy": {
+                "name": "Energia"
+            },
+            "violated": {
+                "name": "Violado"
+            },
+            "stay": {
+                "name": "Stay"
+            },
+            "low_battery": {
+                "name": "Bateria fraca"
+            }
+        },
+        "switch": {
+            "pgm": {
+                "name": "PGM"
+            },
+            "annulled": {
+                "name": "Anulado"
+            }
+        }
+    },
+    "exceptions": {
+        "open_zone": {
+            "message": "Não é possível armar: uma ou mais zonas estão abertas"
+        }
+    }
+}

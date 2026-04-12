@@ -53,7 +53,10 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
         try:
             await self.coordinator.client.arm(code)
         except OpenZoneError:
-            raise HomeAssistantError("Cannot arm: one or more zones are open")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="open_zone",
+            )
         await self.coordinator.async_request_refresh()
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
@@ -62,7 +65,10 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
         try:
             await self.coordinator.client.arm(code, stay=True)
         except OpenZoneError:
-            raise HomeAssistantError("Cannot arm: one or more zones are open")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="open_zone",
+            )
         await self.coordinator.async_request_refresh()
 
     async def async_alarm_trigger(self, code: str | None = None) -> None:

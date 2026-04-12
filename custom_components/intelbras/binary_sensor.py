@@ -61,7 +61,7 @@ class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  #
         )
         self._attr_device_class = BinarySensorDeviceClass.PLUG
         self._attr_has_entity_name = True
-        self._attr_name = "Energy"
+        self._attr_translation_key = "energy"
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -91,7 +91,8 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type:
             via_device=(DOMAIN, mac),
         )
         self._attr_has_entity_name = True
-        self._attr_name = None if property == "open" else property.replace("_", " ").capitalize()
+        if property != "open":
+            self._attr_translation_key = property
         self._attr_device_class = device_class
         self._attr_entity_registry_enabled_default = enabled
 
