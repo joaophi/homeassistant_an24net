@@ -47,6 +47,12 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
             | AlarmControlPanelEntityFeature.TRIGGER
         )
 
+    async def async_alarm_disarm(self, code: str | None = None) -> None:
+        if code is None:
+            raise ValueError("Code is required to disarm the alarm")
+        await self.coordinator.client.disarm(code)
+        await self.coordinator.async_request_refresh()
+
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         if code is None:
             raise ValueError("Code is required to arm the alarm")
