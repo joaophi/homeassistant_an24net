@@ -23,5 +23,34 @@
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "energy": {
+        "name": "Energy"
+      },
+      "violated": {
+        "name": "Violated"
+      },
+      "stay": {
+        "name": "Stay"
+      },
+      "low_battery": {
+        "name": "Low battery"
+      }
+    },
+    "switch": {
+      "pgm": {
+        "name": "PGM"
+      },
+      "annulled": {
+        "name": "Annulled"
+      }
+    }
+  },
+  "exceptions": {
+    "open_zone": {
+      "message": "Cannot arm: one or more zones are open"
+    }
   }
 }
