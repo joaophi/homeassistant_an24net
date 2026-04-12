@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
-from asyncio import TaskGroup
-from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -13,7 +13,7 @@ from homeassistant.const import CONF_HOST, CONF_MAC, CONF_PIN, CONF_PORT
 from homeassistant.helpers.device_registry import format_mac
 
 from .const import DOMAIN
-from .protocol import SYNC_NAME, ClientAMT
+from .protocol import SYNC_NAME, ClientAMT, WrongPasswordError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,15 +44,22 @@ class AN24NetConfigFlow(ConfigFlow, domain=DOMAIN):
                 user_input[CONF_MAC],
                 user_input[CONF_PIN],
             )
-
+            name = "Intelbras"
+            task = asyncio.ensure_future(client.run())
             try:
-                async with TaskGroup() as tg:
-                    task = tg.create_task(client.run())
-                    [name] = await client.sync(SYNC_NAME)
-                    task.cancel()
+                names = await client.sync(SYNC_NAME)
+                if names:
+                    name = names[0]
+            except WrongPasswordError:
+                errors["base"] = "invalid_auth"
             except Exception:
                 errors["base"] = "cannot_connect"
-            else:
+            finally:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+            if not errors:
                 user_input[CONF_MAC] = format_mac(user_input[CONF_MAC])
                 await self.async_set_unique_id(user_input[CONF_MAC])
                 self._abort_if_unique_id_configured()
@@ -60,43 +67,4 @@ class AN24NetConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
-        )
-
-    async def async_step_reauth(
-        self, entry_data: Mapping[str, Any]
-    ) -> ConfigFlowResult:
-        """Handle reauth when credentials become invalid."""
-        return await self.async_step_reauth_confirm()
-
-    async def async_step_reauth_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Handle reauth confirmation."""
-        errors: dict[str, str] = {}
-        reauth_entry = self._get_reauth_entry()
-
-        if user_input is not None:
-            client = ClientAMT(
-                reauth_entry.data[CONF_HOST],
-                reauth_entry.data[CONF_PORT],
-                reauth_entry.data[CONF_MAC],
-                user_input[CONF_PIN],
-            )
-            try:
-                async with TaskGroup() as tg:
-                    task = tg.create_task(client.run())
-                    await client.sync(SYNC_NAME)
-                    task.cancel()
-            except Exception:
-                errors["base"] = "cannot_connect"
-            else:
-                return self.async_update_reload_and_abort(
-                    reauth_entry,
-                    data_updates={CONF_PIN: user_input[CONF_PIN]},
-                )
-
-        return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=vol.Schema({vol.Required(CONF_PIN): str}),
-            errors=errors,
         )
