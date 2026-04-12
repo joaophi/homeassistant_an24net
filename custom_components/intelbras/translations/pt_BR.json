@@ -1,25 +1,25 @@
 {
     "config": {
         "abort": {
-            "already_configured": "Device is already configured"
+            "already_configured": "Dispositivo já configurado"
         },
         "error": {
-            "cannot_connect": "Failed to connect",
-            "invalid_auth": "Invalid authentication",
-            "unknown": "Unexpected error"
+            "cannot_connect": "Falha ao conectar",
+            "invalid_auth": "Autenticação inválida",
+            "unknown": "Erro inesperado"
         },
         "step": {
             "user": {
                 "data": {
                     "host": "Host",
                     "mac": "MAC",
-                    "pin": "PIN code",
-                    "port": "Port"
+                    "pin": "Código PIN",
+                    "port": "Porta"
                 }
             },
             "reauth_confirm": {
                 "data": {
-                    "pin": "PIN code"
+                    "pin": "Código PIN"
                 }
             }
         }
@@ -27,16 +27,16 @@
     "entity": {
         "binary_sensor": {
             "energy": {
-                "name": "Energy"
+                "name": "Energia"
             },
             "violated": {
-                "name": "Violated"
+                "name": "Violado"
             },
             "stay": {
                 "name": "Stay"
             },
             "low_battery": {
-                "name": "Low battery"
+                "name": "Bateria fraca"
             }
         },
         "switch": {
@@ -44,13 +44,13 @@
                 "name": "PGM"
             },
             "annulled": {
-                "name": "Annulled"
+                "name": "Anulado"
             }
         }
     },
     "exceptions": {
         "open_zone": {
-            "message": "Cannot arm: one or more zones are open"
+            "message": "Não é possível armar: uma ou mais zonas estão abertas"
         }
     }
 }
