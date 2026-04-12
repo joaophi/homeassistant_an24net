@@ -93,6 +93,8 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type:
         self._attr_has_entity_name = True
         if property != "open":
             self._attr_translation_key = property
+        else:
+            self._attr_name = None
         self._attr_device_class = device_class
         self._attr_entity_registry_enabled_default = enabled
 
