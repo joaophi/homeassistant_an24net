@@ -8,6 +8,11 @@
           "mac": "MAC",
           "pin": "[%key:common::config_flow::data::pin%]"
         }
+      },
+      "reauth_confirm": {
+        "data": {
+          "pin": "[%key:common::config_flow::data::pin%]"
+        }
       }
     },
     "error": {

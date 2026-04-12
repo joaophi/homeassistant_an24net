@@ -8,12 +8,16 @@ from homeassistant.components.alarm_control_panel.const import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import AMTCoordinator
+from .protocol import OpenZoneError
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -25,40 +29,40 @@ async def async_setup_entry(
     async_add_entities([AMTAlarm(config_entry.runtime_data)])
 
 
-class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):
+class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # type: ignore[misc]
     def __init__(self, coordinator: AMTCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":"))
+        self._attr_has_entity_name = True
+        self._attr_name = None
         self._attr_device_info = DeviceInfo(
-            identifiers={
-                # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, self._attr_unique_id)
-            },
+            identifiers={(DOMAIN, self._attr_unique_id)},
             name=coordinator.data["messages"]["name"],
+            manufacturer="Intelbras",
+            model="AN-24 Net",
         )
-        self._attr_name = coordinator.data["messages"]["name"]
-        self.code_format = CodeFormat.NUMBER
-        self.supported_features = (
+        self._attr_code_format = CodeFormat.NUMBER
+        self._attr_supported_features = (
             AlarmControlPanelEntityFeature.ARM_AWAY
             | AlarmControlPanelEntityFeature.TRIGGER
         )
-        stay = any(
-            zone["enabled"] and zone["stay"]
-            for zone in self.coordinator.data["status"]["zones"]
-        )
-        if stay:
-            self.supported_features |= AlarmControlPanelEntityFeature.ARM_HOME
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         if code is None:
             raise ValueError("Code is required to arm the alarm")
-        await self.coordinator.client.arm(code)
+        try:
+            await self.coordinator.client.arm(code)
+        except OpenZoneError:
+            raise HomeAssistantError("Cannot arm: one or more zones are open")
         await self.coordinator.async_request_refresh()
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
         if code is None:
             raise ValueError("Code is required to arm the alarm")
-        await self.coordinator.client.arm(code, stay=True)
+        try:
+            await self.coordinator.client.arm(code, stay=True)
+        except OpenZoneError:
+            raise HomeAssistantError("Cannot arm: one or more zones are open")
         await self.coordinator.async_request_refresh()
 
     async def async_alarm_trigger(self, code: str | None = None) -> None:
@@ -70,12 +74,24 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        if self.coordinator.data["status"]["sirenTriggered"]:
-            self.alarm_state = AlarmControlPanelState.TRIGGERED
-        elif self.coordinator.data["status"]["partitionAArmed"]:
-            self.alarm_state = AlarmControlPanelState.ARMED_AWAY
-        elif self.coordinator.data["status"]["partitionBArmed"]:
-            self.alarm_state = AlarmControlPanelState.ARMED_HOME
+        status = self.coordinator.data["status"]
+
+        stay = any(zone["enabled"] and zone["stay"] for zone in status["zones"])
+        features = (
+            AlarmControlPanelEntityFeature.ARM_AWAY
+            | AlarmControlPanelEntityFeature.TRIGGER
+        )
+        if stay:
+            features |= AlarmControlPanelEntityFeature.ARM_HOME
+        self._attr_supported_features = features
+
+        if status["sirenTriggered"]:
+            self._attr_alarm_state = AlarmControlPanelState.TRIGGERED
+        elif status["partitionAArmed"]:
+            self._attr_alarm_state = AlarmControlPanelState.ARMED_AWAY
+        elif status["partitionBArmed"]:
+            self._attr_alarm_state = AlarmControlPanelState.ARMED_HOME
         else:
-            self.alarm_state = AlarmControlPanelState.DISARMED
+            self._attr_alarm_state = AlarmControlPanelState.DISARMED
+
         self.async_write_ha_state()

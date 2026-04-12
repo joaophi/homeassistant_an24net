@@ -10,6 +10,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import AMTCoordinator
 
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -38,19 +40,19 @@ async def async_setup_entry(
     # )
 
 
-class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
+class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ignore[misc]
     def __init__(self, coordinator: AMTCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_pgm"
-        self._attr_device_info = DeviceInfo(
-            identifiers={
-                # Serial numbers are unique identifiers within a specific domain
-                (DOMAIN, format_mac(coordinator.client.mac.hex(":")))
-            },
-            name=coordinator.data["messages"]["name"],
-        )
-        self._attr_name = coordinator.data["messages"]["name"] + " PGM"
+        self._attr_has_entity_name = True
+        self._attr_name = "PGM"
         self._attr_entity_registry_enabled_default = False
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, format_mac(coordinator.client.mac.hex(":")))},
+            name=coordinator.data["messages"]["name"],
+            manufacturer="Intelbras",
+            model="AN-24 Net",
+        )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
@@ -67,26 +69,21 @@ class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
         self.async_write_ha_state()
 
 
-class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
+class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ignore[misc]
     def __init__(self, coordinator: AMTCoordinator, index: int) -> None:
         super().__init__(coordinator, context=index)
         mac = format_mac(coordinator.client.mac.hex(":"))
         zone = coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}"
         self._index = index
         self._attr_unique_id = f"{mac}_zone_{index + 1:02}_annulled"
+        self._attr_has_entity_name = True
+        self._attr_name = "Annulled"
+        self._attr_entity_registry_enabled_default = False
         self._attr_device_info = DeviceInfo(
-            identifiers={
-                # Serial numbers are unique identifiers within a specific domain
-                (
-                    DOMAIN,
-                    f"{mac}_zone_{index + 1:02}",
-                )
-            },
+            identifiers={(DOMAIN, f"{mac}_zone_{index + 1:02}")},
             name=zone,
             via_device=(DOMAIN, mac),
         )
-        self._attr_name = f"{zone} annulled"
-        self.entity_registry_enabled_default = False
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
