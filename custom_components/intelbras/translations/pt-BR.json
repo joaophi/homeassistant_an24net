@@ -51,6 +51,9 @@
     "exceptions": {
         "open_zone": {
             "message": "Não é possível armar: uma ou mais zonas estão abertas"
+        },
+        "wrong_password": {
+            "message": "Senha incorreta"
         }
     }
 }

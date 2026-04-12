@@ -15,7 +15,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import AMTCoordinator
-from .protocol import OpenZoneError
+from .protocol import OpenZoneError, WrongPasswordError
 
 PARALLEL_UPDATES = 0
 
@@ -50,7 +50,13 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         if code is None:
             raise ValueError("Code is required to disarm the alarm")
-        await self.coordinator.client.disarm(code)
+        try:
+            await self.coordinator.client.disarm(code)
+        except WrongPasswordError:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="wrong_password",
+            )
         await self.coordinator.async_request_refresh()
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
@@ -58,6 +64,11 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
             raise ValueError("Code is required to arm the alarm")
         try:
             await self.coordinator.client.arm(code)
+        except WrongPasswordError:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="wrong_password",
+            )
         except OpenZoneError:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -70,6 +81,11 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
             raise ValueError("Code is required to arm the alarm")
         try:
             await self.coordinator.client.arm(code, stay=True)
+        except WrongPasswordError:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="wrong_password",
+            )
         except OpenZoneError:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -80,7 +96,13 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
     async def async_alarm_trigger(self, code: str | None = None) -> None:
         if code is None:
             raise ValueError("Code is required to trigger the alarm")
-        await self.coordinator.client.panic(code)
+        try:
+            await self.coordinator.client.panic(code)
+        except WrongPasswordError:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="wrong_password",
+            )
         await self.coordinator.async_request_refresh()
 
     @callback
