@@ -91,7 +91,7 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type:
             via_device=(DOMAIN, mac),
         )
         self._attr_has_entity_name = True
-        self._attr_name = property.replace("_", " ")
+        self._attr_name = None if property == "open" else property.replace("_", " ").capitalize()
         self._attr_device_class = device_class
         self._attr_entity_registry_enabled_default = enabled
 
