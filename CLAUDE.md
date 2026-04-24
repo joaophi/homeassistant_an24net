@@ -51,6 +51,19 @@ AMTCoordinator (polls every 5s via client.status())
 
 See [`protocol.md`](protocol.md) for the full AMT protocol documentation including frame format, command codes, status parsing, sync/names, event log ring buffer, and Contact ID decoding.
 
+## Publishing a Release
+
+1. Bump the version in `manifest.json`
+2. Commit with the version number as the message (e.g. `0.1.16`)
+3. Push, tag, and create a GitHub release:
+
+```bash
+git push
+git tag <version>
+git push origin <version>
+gh release create <version> --title "<version>" --generate-notes
+```
+
 ## Conventions
 
 - Python 3.14.2+, strict Pyright type checking
