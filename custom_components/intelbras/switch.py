@@ -2,9 +2,9 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
-from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -55,6 +55,8 @@ class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ig
             model="AN-24 Net",
         )
 
+        self._attr_is_on = coordinator.data["status"]["pgm"]
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
         await self.coordinator.client.pgm(on=True)
@@ -86,6 +88,8 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # typ
             name=zone,
             via_device=(DOMAIN, mac),
         )
+
+        self._attr_is_on = coordinator.data["status"]["zones"][index]["annulled"]
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
