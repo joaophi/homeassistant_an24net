@@ -684,11 +684,14 @@ class ClientAMT:
                     tg.create_task(read(reader))
                     tg.create_task(write(writer))
             except Exception as ex:
-                if writer is not None:
-                    writer.close()
                 while not self._send.empty():
                     _, _, future = self._send.get_nowait()
                     future.set_exception(ex)
+            finally:
+                if writer is not None:
+                    writer.close()
+                    with contextlib.suppress(Exception):
+                        await writer.wait_closed()
             await asyncio.sleep(5)
 
     async def _request(self, command: int, data: bytes = b"") -> bytes:
