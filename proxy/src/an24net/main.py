@@ -250,6 +250,7 @@ async def handle(
                             command, data = await read_command(u_reader)
 
                             if command == OK:
+                                logger.info("← OK")
                                 continue
                             elif command == MAC_COMMAND:
                                 logger.info("← MAC")

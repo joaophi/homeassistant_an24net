@@ -57,6 +57,24 @@ class MyHomeCommands:
     PGM = (0x50, pgm)
 
 
+def _compact_ranges(nums: list[int]) -> str:
+    """Format a list of integers with consecutive runs collapsed.
+
+    [1, 2, 3, 6, 9, 10, 11] → "[1..3, 6, 9..11]"
+    Uses .. only for 3+ consecutive numbers.
+    """
+    if not nums:
+        return "[]"
+    groups: list[list[int]] = [[nums[0]]]
+    for n in nums[1:]:
+        if n == groups[-1][-1] + 1 or n == groups[-1][-1] - 1:
+            groups[-1].append(n)
+        else:
+            groups.append([n])
+    parts = [f"{g[0]}..{g[-1]}" if len(g) > 2 else ", ".join(str(x) for x in g) for g in groups]
+    return f"[{', '.join(parts)}]"
+
+
 def _sync_type_name(t: int) -> str:
     return {
         SYNC_EVENT: "EVENT",
@@ -84,13 +102,13 @@ def status_to_str(s: "Status") -> str:
         i + 1 for i, z in enumerate(s["zones"]) if z["enabled"] and z["annulled"]
     ]
     if open_z:
-        parts.append(f"open={open_z}")
+        parts.append(f"open={_compact_ranges(open_z)}")
     if violated_z:
-        parts.append(f"violated={violated_z}")
+        parts.append(f"violated={_compact_ranges(violated_z)}")
     if stay_z:
-        parts.append(f"stay={stay_z}")
+        parts.append(f"stay={_compact_ranges(stay_z)}")
     if annulled_z:
-        parts.append(f"annulled={annulled_z}")
+        parts.append(f"annulled={_compact_ranges(annulled_z)}")
     if s["pgm"]:
         parts.append("pgm=on")
     if s["no_energy"]:
@@ -106,7 +124,6 @@ def my_home_to_str(data: bytes) -> str:
     if data[0] == ERR_OPEN_ZONE:
         return "ERR_OPEN_ZONE"
     if data[0] == DELIMITER and data[-1] == DELIMITER:
-        password = data[1:5].decode("ascii")
         command = data[5]
         data = data[6:-1]
         if command == MyHomeCommands.ARM[0] and data == MyHomeCommands.ARM[1](
@@ -140,22 +157,33 @@ def my_home_to_str(data: bytes) -> str:
         elif command == MyHomeCommands.BYPASS[0]:
             bitmask = int.from_bytes(data[:3], byteorder="little")
             zones = [i + 1 for i in range(24) if bitmask & (1 << i)]
-            cmd_str = f"BYPASS {zones}"
+            cmd_str = f"BYPASS {_compact_ranges(zones)}"
         elif (
             command == 0x00 and len(data) > 5 and data[2] == MyHomeCommands.MESSAGES[0]
         ):
-            cmd_str = f"MESSAGES {_sync_type_name(data[5])}"
+            if data[5] == 0x39 and len(data) > 7:
+                indices = [data[i + 1] for i in range(7, len(data) - 1, 2)]
+                cmd_str = f"MESSAGES {_compact_ranges(indices)}"
+            else:
+                cmd_str = f"MESSAGES {_sync_type_name(data[5])}"
         else:
             cmd_str = f"0x{command:02x}" + (f": {data.hex(':')}" if data else "")
-        return f"CMD = {cmd_str}, PASSWORD = {password}"
+        return cmd_str
     try:
         type, messages = parse_sync(data)
         return f"SYNC = {_sync_type_name(type)}, MESSAGES = {messages}"
     except Exception:
         pass
 
+    if len(data) > 6 and data[1] == MyHomeCommands.MESSAGES[0]:
+        if data[6] == 0xF0:
+            return "MESSAGES: empty"
+        if data[6] == 0x39 and len(data) > 8:
+            n = len(data[8:]) // 15
+            return f"MESSAGES: {n} events"
+
     try:
-        return status_to_str(parse_status(data))
+        return f"STATUS: {status_to_str(parse_status(data))}"
     except Exception:
         pass
 
