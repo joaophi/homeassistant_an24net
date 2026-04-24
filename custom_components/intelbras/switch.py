@@ -65,10 +65,14 @@ class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ig
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
         await self.coordinator.client.pgm(on=True)
+        self._attr_is_on = True
+        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
         await self.coordinator.client.pgm(on=False)
+        self._attr_is_on = False
+        self.async_write_ha_state()
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -105,6 +109,8 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # typ
         ]
         annuled.append(self._index + 1)
         await self.coordinator.client.bypass(annuled)
+        self._attr_is_on = True
+        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
@@ -116,6 +122,8 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # typ
         if (self._index + 1) in annuled:
             annuled.remove(self._index + 1)
         await self.coordinator.client.bypass(annuled)
+        self._attr_is_on = False
+        self.async_write_ha_state()
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -155,11 +163,15 @@ class AMTDisableUpstreamSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
         """Disable upstream push forwarding."""
         self._check_proxy()
         await self.coordinator.client.set_upstream_push(enabled=False)
+        self._attr_is_on = True
+        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Enable upstream push forwarding."""
         self._check_proxy()
         await self.coordinator.client.set_upstream_push(enabled=True)
+        self._attr_is_on = False
+        self.async_write_ha_state()
 
     @callback
     def _handle_coordinator_update(self) -> None:
