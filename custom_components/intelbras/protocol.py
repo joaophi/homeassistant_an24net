@@ -447,6 +447,8 @@ CID_EVENT_TYPES: dict[tuple[int, int], str] = {
     (3, 384): "battery_restore",
     (1, 401): "disarm",
     (3, 401): "arm",
+    (1, 422): "pgm_activate",
+    (3, 422): "pgm_deactivate",
 }
 
 ZONE_EVENT_TYPES = [
