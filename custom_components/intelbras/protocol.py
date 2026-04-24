@@ -178,6 +178,8 @@ def my_home_to_str(data: bytes) -> str:
     if len(data) > 6 and data[1] == MyHomeCommands.MESSAGES[0]:
         if data[6] == 0xF0:
             return "MESSAGES: empty"
+        if data[6] == 0x30 and len(data) > 9:
+            return f"MESSAGES: cursor pointer={data[9]}"
         if data[6] == 0x39 and len(data) > 8:
             n = len(data[8:]) // 15
             return f"MESSAGES: {n} events"
@@ -742,25 +744,20 @@ class ClientAMT:
         )
         return parse_status(data)
 
-    async def get_event_cursor(self) -> tuple[int, int]:
-        """Get event log cursor. Returns (pointer, total_count)."""
+    async def get_event_pointer(self) -> int:
+        """Get event log write pointer (0–127) in the 128-entry ring buffer."""
         payload = bytes([0x00, 0x00, 0xF1, 0x00, 0x03, 0x30, 0x03, 0x00])
         payload = bytes([*payload, checksum(payload)])
         data = await self._request(MY_HOME, my_home_data(self.pin, 0x00, payload))
-        pointer = data[9]
-        total = data[9] * 256 + data[10]
-        return pointer, total
+        return data[9]
 
     async def fetch_events(self) -> list[EventRecord]:
         """Fetch all events from the ring buffer (newest first)."""
-        pointer, total = await self.get_event_cursor()
-        count = min(total, 128)
-        if count == 0:
-            return []
+        pointer = await self.get_event_pointer()
 
         indices: list[int] = []
         pos = (pointer - 1) % 128
-        for _ in range(count):
+        for _ in range(128):
             indices.append(pos)
             pos = (pos - 1) % 128
 
