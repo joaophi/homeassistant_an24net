@@ -17,6 +17,8 @@ from an24net.protocol import (
     OK,
     XOR_COMMAND,
     CONNECTION_COMMAND,
+    CONN_NOT_FOUND,
+    CONN_SUCCESS,
     command_to_str,
     frame_hex,
     read_command,
@@ -72,15 +74,15 @@ async def handle(
         async def __downstream_client(data: bytes) -> None:
             mac = data[9:15]
             logger = _logger.getChild(f"client[{mac.hex(':')}]")
-            logger.info("connected")
-
             alarm = OPEN_CONNECTIONS.get(mac, None)
             if not alarm:
-                writer.write(b"\xe4")
+                logger.warning("alarm not connected, rejecting")
+                writer.write(bytes([CONN_NOT_FOUND]))
                 await writer.drain()
                 return
 
-            writer.write(b"\xe6\x0e")
+            logger.info("connected")
+            writer.write(bytes([CONN_SUCCESS, 0x0E]))
             await writer.drain()
 
             push_queue = asyncio.Queue[tuple[int, bytes]]()
