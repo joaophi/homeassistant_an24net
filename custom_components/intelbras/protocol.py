@@ -1,11 +1,12 @@
 import asyncio
 import contextlib
+from collections.abc import Callable
 from typing import TypedDict
 
 START_COMMAND = 0x94
 MAC_COMMAND = 0xC4
 VERSION_COMMAND = 0xC0
-UNKNOWN_COMMAND = 0x80
+TIME_COMMAND = 0x80
 PING_COMMAND = 0xF7
 PUSH_COMMAND = 0xB4
 OK = 0xFE
@@ -56,18 +57,24 @@ def my_home_to_str(data: bytes) -> str:
             command = "STATUS"
         elif command == 0x00 and data[2] == MyHomeCommands.MESSAGES[0]:
             command = "MESSAGES"
-            if data[5] == SYNC_NAME:
+            if data[5] == SYNC_EVENT:
+                command += " EVENT"
+            elif data[5] == SYNC_NAME:
                 command += " NAME"
             elif data[5] == SYNC_USER:
                 command += " USER"
             elif data[5] == SYNC_ZONE:
                 command += " ZONE"
+            else:
+                command += f" 0x{data[5]:02x}"
         else:
             command = f"0x{command:02x}" + (f": {data.hex(':')}" if data else "")
         return f"CMD = {command}, PASSWORD = {password}"
     try:
         type, messages = parse_sync(data)
-        if type == SYNC_NAME:
+        if type == SYNC_EVENT:
+            sync = "EVENT"
+        elif type == SYNC_NAME:
             sync = "NAME"
         elif type == SYNC_USER:
             sync = "USER"
@@ -95,8 +102,8 @@ def command_to_str(command: int, data: bytes) -> str:
         return "MAC" + (f": {data.hex(':')}" if data else "")
     if command == VERSION_COMMAND:
         return "VERSION" + (f": {data.decode('ascii')}" if data else "")
-    if command == UNKNOWN_COMMAND:
-        return "UNKNOWN" + (f": {data.hex(':')}" if data else "")
+    if command == TIME_COMMAND:
+        return "TIME" + (f": tz={-data[0]}" if data else "")
     if command == PING_COMMAND:
         return "PING"
     if command == PUSH_COMMAND:
@@ -242,6 +249,8 @@ def parse_char(char: int) -> str:
 
 
 def parse_sync(data: bytes) -> tuple[int, list[str]]:
+    if data[1] != MyHomeCommands.MESSAGES[0] or data[7] != 0xE0:
+        raise ValueError("Invalid sync data")
     type = data[6]
     result: list[str] = []
     buffer = ""
@@ -272,9 +281,115 @@ def null_zone_data(zones: list[int]) -> bytes:
     return bytes(data)
 
 
+SYNC_EVENT = 0x30
 SYNC_NAME = 0x31
 SYNC_USER = 0x32
 SYNC_ZONE = 0x33
+
+
+def bcd(b: int) -> int:
+    """Decode BCD byte."""
+    return (b >> 4) * 10 + (b & 0x0F)
+
+
+def cid_decode(b8: int, b9: int) -> tuple[int, int]:
+    """Decode Contact ID qualifier and event code.
+
+    Returns (qualifier, code). qualifier: 1=event/trouble, 3=restore.
+    """
+    q = b8 >> 4
+    d1 = b8 & 0x0F
+    d2 = (b9 >> 4) if (b9 >> 4) != 0xA else 0
+    d3 = (b9 & 0x0F) if (b9 & 0x0F) != 0xA else 0
+    return q, d1 * 100 + d2 * 10 + d3
+
+
+CID_EVENT_TYPES: dict[tuple[int, int], str] = {
+    (1, 130): "burglary",
+    (3, 130): "burglary_restore",
+    (1, 147): "rf_supervision_failure",
+    (3, 147): "rf_supervision_restore",
+    (1, 301): "power_failure",
+    (3, 301): "power_restore",
+    (1, 302): "system_battery_low",
+    (3, 302): "system_battery_restore",
+    (1, 384): "low_battery",
+    (3, 384): "battery_restore",
+    (1, 401): "disarm",
+    (3, 401): "arm",
+}
+
+ZONE_EVENT_TYPES = [
+    "burglary",
+    "burglary_restore",
+    "rf_supervision_failure",
+    "rf_supervision_restore",
+    "low_battery",
+    "battery_restore",
+]
+
+SYSTEM_EVENT_TYPES = [
+    "power_failure",
+    "power_restore",
+    "system_battery_low",
+    "system_battery_restore",
+    "arm",
+    "disarm",
+]
+
+
+class EventRecord(TypedDict):
+    timestamp: str
+    qualifier: int
+    code: int
+    zone: int
+    ring_index: int
+
+
+def parse_event_record(rec: bytes) -> EventRecord:
+    """Parse a 15-byte event record from the ring buffer."""
+    q, code = cid_decode(rec[8], rec[9])
+    return {
+        "timestamp": (
+            f"20{bcd(rec[2]):02d}-{bcd(rec[3]):02d}-{bcd(rec[4]):02d}"
+            f"T{bcd(rec[5]):02d}:{bcd(rec[6]):02d}:{bcd(rec[7]):02d}"
+        ),
+        "qualifier": q,
+        "code": code,
+        "zone": rec[12] if rec[12] != 0x0A else 0,
+        "ring_index": rec[1],
+    }
+
+
+def parse_push_event(data: bytes) -> EventRecord:
+    """Parse a PUSH_COMMAND (0xB4) payload.
+
+    Format: [header] [account*4] [msg_type*2] [qualifier] [code*3]
+            [group*2] [zone*3] [timestamp*6] [timestamp*6]
+    Each CID field is one byte per digit (0x0A = 0).
+    Timestamp is plain integers: day, month, year, hour, minute, second.
+    """
+    qualifier = data[7]
+    d1 = data[8]
+    d2 = data[9] if data[9] != 0x0A else 0
+    d3 = data[10] if data[10] != 0x0A else 0
+    code = d1 * 100 + d2 * 10 + d3
+
+    z1 = data[13] if data[13] != 0x0A else 0
+    z2 = data[14] if data[14] != 0x0A else 0
+    z3 = data[15] if data[15] != 0x0A else 0
+    zone = z1 * 100 + z2 * 10 + z3
+
+    day, month, year = data[16], data[17], data[18]
+    hour, minute, second = data[19], data[20], data[21]
+
+    return {
+        "timestamp": f"20{year:02d}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}:{second:02d}",
+        "qualifier": qualifier,
+        "code": code,
+        "zone": zone,
+        "ring_index": -1,
+    }
 
 
 def sync_data(type: int, indexes: bytes = b"\x00") -> bytes:
@@ -318,6 +433,8 @@ async def read_command(reader: asyncio.StreamReader) -> tuple[int, bytes]:
     data = await reader.readexactly(length)
     [checksum_] = await reader.readexactly(1)
     if checksum_ != checksum(bytes([length, *data])):
+        if data[0] == MY_HOME and data[1] == 0x00:
+            return data[0], bytes([*data[1:], checksum_])
         raise ChecksumError(bytes([length, *data]), checksum_)
 
     return data[0], data[1:]
@@ -357,11 +474,16 @@ class ClientAMT:
         self._receive: list[asyncio.Queue[tuple[int, bytes]]] = []
         self._status = None
         self._request_lock = asyncio.Lock()
+        # Called when PUSH_COMMAND (0xB4) is received from the panel.
+        # Set by the coordinator to parse Contact ID events and dispatch them.
+        self.on_push: Callable[[bytes], None] | None = None
 
     async def run(self) -> None:
         async def read(reader: asyncio.StreamReader) -> None:
             while True:
                 command, data = await read_command(reader)
+                if command == PUSH_COMMAND and self.on_push is not None:
+                    self.on_push(data)
                 for queue in self._receive:
                     with contextlib.suppress(asyncio.QueueFull):
                         queue.put_nowait((command, data))
@@ -489,3 +611,56 @@ class ClientAMT:
             ),
         )
         return parse_status(data)
+
+    async def get_event_cursor(self) -> tuple[int, int]:
+        """Get event log cursor. Returns (pointer, total_count)."""
+        payload = bytes([0x00, 0x00, 0xF1, 0x00, 0x03, 0x30, 0x03, 0x00])
+        payload = bytes([*payload, checksum(payload)])
+        data = await self._request(
+            MY_HOME, my_home_data(self.pin, 0x00, payload)
+        )
+        pointer = data[9]
+        total = data[9] * 256 + data[10]
+        return pointer, total
+
+    async def fetch_events(self) -> list[EventRecord]:
+        """Fetch all events from the ring buffer (newest first)."""
+        pointer, total = await self.get_event_cursor()
+        count = min(total, 128)
+        if count == 0:
+            return []
+
+        indices: list[int] = []
+        pos = (pointer - 1) % 128
+        for _ in range(count):
+            indices.append(pos)
+            pos = (pos - 1) % 128
+
+        events: list[EventRecord] = []
+        for batch_start in range(0, len(indices), 10):
+            batch = indices[batch_start : batch_start + 10]
+            index_bytes: list[int] = []
+            for idx in batch:
+                index_bytes.extend([0x00, idx])
+            payload = bytes([
+                0x00, 0x00, 0xF1, 0x00,
+                len(index_bytes) + 2, 0x39, 0x00,
+                *index_bytes,
+            ])
+            payload = bytes([*payload, checksum(payload)])
+
+            data = await self._request(
+                MY_HOME, my_home_data(self.pin, 0x00, payload)
+            )
+
+            if len(data) > 6 and data[6] == 0xF0:
+                continue
+
+            event_data = data[8:]
+            for i in range(len(batch)):
+                offset = i * 15
+                if offset + 15 > len(event_data):
+                    break
+                events.append(parse_event_record(event_data[offset : offset + 15]))
+
+        return events

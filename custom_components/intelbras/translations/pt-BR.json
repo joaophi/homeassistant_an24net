@@ -34,6 +34,14 @@
                 "name": "Bateria fraca"
             }
         },
+        "event": {
+            "system_event": {
+                "name": "Eventos"
+            },
+            "zone_event": {
+                "name": "Eventos"
+            }
+        },
         "switch": {
             "pgm": {
                 "name": "PGM"
