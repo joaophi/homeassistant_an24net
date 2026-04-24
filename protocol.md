@@ -182,10 +182,9 @@ Request payload:
 ```
 - byte[6] = **0x03** for events (NOT 0xE0 like NAME/ZONE sync)
 
-Response: `00:f1:00:00:00:LL:30:03:00:HI:LO:...`
+Response: `00:f1:00:00:00:LL:30:03:00:HI:...`
 - **HI** = ring buffer write pointer (0x00–0x7F)
 - Newest event at position `(HI - 1) % 128`, oldest at HI
-- `HI * 256 + LO` = total event count
 
 ### Step 2: Fetch events (type 0x39)
 

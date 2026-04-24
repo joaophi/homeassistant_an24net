@@ -158,6 +158,7 @@ async def handle(
                         )
                         for cb in alarm.on_push:
                             cb((command, data))
+                        logger.info(f"→ OK | {OK:02x}")
                         await send_command(writer, OK)
                     elif command == TIME_COMMAND:
                         tz = -data[0]
@@ -173,13 +174,17 @@ async def handle(
                         )
                         await send_command(writer, TIME_COMMAND, time_data)
                     elif command == PING_COMMAND:
+                        logger.info(f"← PING | {PING_COMMAND:02x}")
+                        logger.info(f"→ OK | {OK:02x}")
                         await send_command(writer, OK)
                     elif alarm.resolve(command, data):
+                        logger.info(f"→ OK | {OK:02x}")
                         await send_command(writer, OK)
                     else:
                         logger.info(
                             f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
                         )
+                        logger.info(f"→ OK | {OK:02x}")
                         await send_command(writer, OK)
             finally:
                 OPEN_CONNECTIONS.pop(mac)
@@ -194,6 +199,7 @@ async def handle(
                     await send_command(writer, 0x00)
                 elif command == START_COMMAND:
                     _logger.info("← START")
+                    _logger.info(f"→ OK | {OK:02x}")
                     await send_command(writer, OK)
                     return await __downstream_alarm()
                 elif command == CONNECTION_COMMAND:
