@@ -66,7 +66,6 @@ async def handle(
 ) -> None:
     peer = writer.get_extra_info("peername")
     addr = f"{peer[0]}:{peer[1]}" if peer else "unknown"
-    _logger = _logger.getChild(f"conn{next(_conn_ids)}")
     _logger.info(f"new connection from {addr}")
 
     async with TaskGroup() as tg:
@@ -316,17 +315,18 @@ async def main() -> None:
         task = asyncio.current_task()
         if task:
             tasks.add(task)
+        conn_logger = logger.getChild(f"conn{next(_conn_ids)}")
         try:
-            await handle(logger, reader, writer)
+            await handle(conn_logger, reader, writer)
         except* (
             asyncio.IncompleteReadError,
             ConnectionResetError,
             BrokenPipeError,
             ConnectionError,
         ):
-            logger.info("connection closed")
+            conn_logger.info("connection closed")
         except* Exception:
-            logger.exception("connection error")
+            conn_logger.exception("connection error")
         finally:
             writer.close()
             if task:
