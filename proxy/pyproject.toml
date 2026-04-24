@@ -1,0 +1,21 @@
+[project]
+name = "an24net-proxy"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+server = "an24net.main:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/an24net"]
+
+[tool.pyright]
+include = ["src/an24net"]
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+reportUnusedFunction = false
