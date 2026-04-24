@@ -2,7 +2,7 @@
 
 Home Assistant custom integration for **Intelbras AN-24 Net** alarm systems.
 
-Communicates with the alarm panel over the AMT protocol on the local network via TCP. No cloud dependencies.
+Communicates with the alarm panel over the AMT protocol via TCP — either through Intelbras cloud or locally via the optional proxy server.
 
 ## Features
 
@@ -13,6 +13,7 @@ Communicates with the alarm panel over the AMT protocol on the local network via
 - Per-zone bypass/annulment switches
 - Real-time push events for instant status updates
 - Repair issues for RF supervision failures and low battery
+- Diagnostics support
 
 ## Installation
 
@@ -36,14 +37,22 @@ You will need:
 
 | Field | Description |
 |-------|-------------|
-| Host  | Hostname or IP of the proxy server |
+| Host  | Hostname or IP of the proxy server (default: `amt.intelbras.com.br`) |
 | Port  | TCP port (default: 9009) |
 | MAC   | Alarm panel MAC address |
 | PIN   | Alarm panel PIN code |
 
-## Proxy Server
+### Options
 
-The alarm panel connects outbound to Intelbras cloud (`amt.intelbras.com.br:9009`). The proxy server intercepts this connection so Home Assistant can communicate with the panel locally. It also maintains the upstream connection to Intelbras cloud, so the original app keeps working.
+After setup, you can configure additional options via **Settings** > **Devices & Services** > **Alarme Intelbras** > **Configure**:
+
+| Option      | Description |
+|-------------|-------------|
+| Require PIN | When enabled, the PIN must be entered in the UI to arm/disarm. When disabled, the stored PIN is used automatically (default: enabled) |
+
+## Proxy Server (optional)
+
+The integration works out of the box via Intelbras cloud (`amt.intelbras.com.br:9009`). The proxy server is optional — it intercepts the alarm's outbound connection so Home Assistant can communicate with the panel locally, reducing latency. It also maintains the upstream connection to Intelbras cloud, so the original app keeps working.
 
 ### Running the proxy
 
