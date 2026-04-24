@@ -3,9 +3,9 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
-from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -76,6 +76,7 @@ class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  #
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_has_entity_name = True
         self._attr_translation_key = "energy"
+        self._attr_is_on = not coordinator.data["status"]["no_energy"]
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -113,6 +114,7 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type:
         self._attr_device_class = device_class
         self._attr_entity_category = category
         self._attr_entity_registry_enabled_default = enabled
+        self._attr_is_on = coordinator.data["status"]["zones"][index][property]
 
     @callback
     def _handle_coordinator_update(self) -> None:

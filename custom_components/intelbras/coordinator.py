@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from datetime import timedelta
+from time import monotonic
 from itertools import batched
 from typing import TypedDict
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
     async_delete_issue,
 )
-from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
@@ -52,7 +54,6 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             _LOGGER,
             name="Alarme AMT",
             update_interval=timedelta(seconds=5),
-            always_update=True,
         )
         self.client = client
         self.__messages: Messages = {
@@ -61,6 +62,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         }
         self.__events: list[EventRecord] = []
         self.__last_failed = False
+        self.__messages_last_sync = 0.0
         self.client.on_push = self._handle_push
 
     @callback
@@ -76,7 +78,8 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
     @callback
     def _apply_push_to_status(self, event: EventRecord) -> None:
         """Update coordinator status from a push event."""
-        status = self.data["status"]
+        data: Data = deepcopy(self.data)
+        status = data["status"]
         event_type = CID_EVENT_TYPES.get((event["qualifier"], event["code"]))
         zone = event["zone"]
 
@@ -106,7 +109,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         else:
             return
 
-        self.async_set_updated_data(self.data)
+        self.async_set_updated_data(data)
 
     def _zone_name(self, zone: int) -> str:
         """Get the display name for a zone number."""
@@ -209,7 +212,8 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
                 translation_key="system_battery_low",
             )
 
-    async def _async_setup(self) -> None:
+    async def _sync_messages(self) -> None:
+        """Fetch device name and zone labels from the panel."""
         try:
             [name] = await self.client.sync(SYNC_NAME)
 
@@ -222,18 +226,26 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
                 "name": name,
                 "zones": zones,
             }
+            self.__messages_last_sync = monotonic()
         except Exception:
             _LOGGER.warning("Failed to fetch device names, using defaults")
 
+    async def _sync_events(self, status: Status | None = None) -> None:
+        """Fetch event log and scan for unresolved issues."""
         try:
             self.__events = await self.client.fetch_events()
-            status = await self.client.status()
+            if status is None:
+                status = await self.client.status()
             enabled_zones = {
                 i + 1 for i, z in enumerate(status["zones"]) if z["enabled"]
             }
             self._scan_unresolved_issues(enabled_zones)
         except Exception:
             _LOGGER.warning("Failed to fetch event log")
+
+    async def _async_setup(self) -> None:
+        await self._sync_messages()
+        await self._sync_events()
 
     async def _async_update_data(self) -> Data:
         try:
@@ -247,15 +259,11 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
 
         if self.__last_failed:
             self.__last_failed = False
-            _LOGGER.info("Connection recovered, re-fetching events")
-            try:
-                self.__events = await self.client.fetch_events()
-                enabled_zones = {
-                    i + 1 for i, z in enumerate(data["zones"]) if z["enabled"]
-                }
-                self._scan_unresolved_issues(enabled_zones)
-            except Exception:
-                _LOGGER.warning("Failed to re-fetch event log after reconnect")
+            _LOGGER.info("Connection recovered, re-fetching events and messages")
+            await self._sync_messages()
+            await self._sync_events(data)
+        elif monotonic() - self.__messages_last_sync > 1800:
+            await self._sync_messages()
 
         for i, zone in enumerate(data["zones"]):
             zone_num = i + 1

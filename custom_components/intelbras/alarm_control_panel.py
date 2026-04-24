@@ -46,10 +46,29 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
             manufacturer="Intelbras",
             model="AN-24 Net",
         )
-        self._attr_supported_features = (
+        status = coordinator.data["status"]
+
+        require_code = config_entry.options.get(CONF_REQUIRE_CODE, True)
+        self._attr_code_format = CodeFormat.NUMBER if require_code else None
+        self._attr_code_arm_required = require_code
+
+        stay = any(zone["enabled"] and zone["stay"] for zone in status["zones"])
+        features = (
             AlarmControlPanelEntityFeature.ARM_AWAY
             | AlarmControlPanelEntityFeature.TRIGGER
         )
+        if stay:
+            features |= AlarmControlPanelEntityFeature.ARM_HOME
+        self._attr_supported_features = features
+
+        if status["sirenTriggered"]:
+            self._attr_alarm_state = AlarmControlPanelState.TRIGGERED
+        elif status["partitionAArmed"]:
+            self._attr_alarm_state = AlarmControlPanelState.ARMED_AWAY
+        elif status["partitionBArmed"]:
+            self._attr_alarm_state = AlarmControlPanelState.ARMED_HOME
+        else:
+            self._attr_alarm_state = AlarmControlPanelState.DISARMED
 
     def _resolve_code(self, code: str | None) -> str:
         """Resolve the PIN code, falling back to stored PIN if not required."""

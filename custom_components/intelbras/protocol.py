@@ -71,7 +71,10 @@ def _compact_ranges(nums: list[int]) -> str:
             groups[-1].append(n)
         else:
             groups.append([n])
-    parts = [f"{g[0]}..{g[-1]}" if len(g) > 2 else ", ".join(str(x) for x in g) for g in groups]
+    parts = [
+        f"{g[0]}..{g[-1]}" if len(g) > 2 else ", ".join(str(x) for x in g)
+        for g in groups
+    ]
     return f"[{', '.join(parts)}]"
 
 
