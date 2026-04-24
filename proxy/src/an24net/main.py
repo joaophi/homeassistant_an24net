@@ -106,9 +106,6 @@ async def handle(
                 async def __handle_server() -> None:
                     while True:
                         command, data = await read_command(reader)
-                        logger.info(
-                            f"↓ {command_to_str(command, data)} | {frame_hex(command, data)}"
-                        )
                         if command == PROXY_COMMAND:
                             if data[0] == PROXY_UPSTREAM_PUSH:
                                 alarm.upstream_enabled = bool(data[1])
@@ -118,6 +115,9 @@ async def handle(
                             logger.info(f"→ OK | {OK:02x}")
                             await send_command(writer, OK)
                             continue
+                        logger.info(
+                            f"↓ {command_to_str(command, data)} | {frame_hex(command, data)}"
+                        )
                         try:
                             _, response = await alarm.request(command, data)
                         except TimeoutError:
