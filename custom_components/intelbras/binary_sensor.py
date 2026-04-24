@@ -5,6 +5,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -34,12 +35,24 @@ async def async_setup_entry(
         enabled_zones.update(new_devices)
         for i in new_devices:
             async_add_entities(
-                AMTSensor(config_entry.runtime_data, i, prop, device_class, enabled)
-                for prop, device_class, enabled in [
-                    ("open", BinarySensorDeviceClass.OPENING, True),
-                    ("violated", BinarySensorDeviceClass.PROBLEM, False),
-                    ("stay", None, False),
-                    ("low_battery", BinarySensorDeviceClass.BATTERY, True),
+                AMTSensor(
+                    config_entry.runtime_data, i, prop, device_class, enabled, category
+                )
+                for prop, device_class, enabled, category in [
+                    ("open", BinarySensorDeviceClass.OPENING, True, None),
+                    (
+                        "violated",
+                        BinarySensorDeviceClass.PROBLEM,
+                        False,
+                        EntityCategory.DIAGNOSTIC,
+                    ),
+                    ("stay", None, False, EntityCategory.DIAGNOSTIC),
+                    (
+                        "low_battery",
+                        BinarySensorDeviceClass.BATTERY,
+                        True,
+                        EntityCategory.DIAGNOSTIC,
+                    ),
                 ]
             )
 
@@ -60,6 +73,7 @@ class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  #
             model="AN-24 Net",
         )
         self._attr_device_class = BinarySensorDeviceClass.PLUG
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_has_entity_name = True
         self._attr_translation_key = "energy"
 
@@ -78,6 +92,7 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type:
         property: str,
         device_class: BinarySensorDeviceClass | None,
         enabled: bool,
+        category: EntityCategory | None,
     ) -> None:
         super().__init__(coordinator, context=index)
         mac = format_mac(coordinator.client.mac.hex(":"))
@@ -96,6 +111,7 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type:
         else:
             self._attr_name = None
         self._attr_device_class = device_class
+        self._attr_entity_category = category
         self._attr_entity_registry_enabled_default = enabled
 
     @callback

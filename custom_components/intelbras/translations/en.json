@@ -16,6 +16,28 @@
                     "pin": "PIN code",
                     "port": "Port"
                 }
+            },
+            "options": {
+                "data": {
+                    "require_code": "Require PIN code"
+                }
+            },
+            "reconfigure": {
+                "data": {
+                    "host": "Host",
+                    "pin": "PIN code",
+                    "port": "Port",
+                    "require_code": "Require PIN code"
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "require_code": "Require PIN code"
+                }
             }
         }
     },
@@ -51,6 +73,24 @@
         "low_battery": {
             "title": "Low battery: {zone}",
             "description": "Zone **{zone}** has a low battery. Replace the battery to maintain proper operation."
+        },
+        "system_battery_low": {
+            "title": "System battery low",
+            "description": "The alarm panel battery is low. Replace or charge the battery to ensure the system operates during power outages."
+        },
+        "burglary": {
+            "title": "Burglary alarm: {zone}",
+            "description": "Zone **{zone}** triggered a burglary alarm.",
+            "fix_flow": {
+                "step": {
+                    "init": {
+                        "description": "Enter your PIN code to disarm the alarm.",
+                        "data": {
+                            "pin": "PIN code"
+                        }
+                    }
+                }
+            }
         }
     },
     "exceptions": {

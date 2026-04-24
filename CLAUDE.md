@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Home Assistant custom integration for **Intelbras AN-24 Net** alarm systems. Communicates with the alarm panel over a custom TCP protocol (AMT protocol) on the local network. Zero external runtime dependencies — uses only Home Assistant core.
 
 - Domain: `intelbras`
-- IoT class: `local_polling` (direct TCP, no cloud)
+- IoT class: `cloud_polling` (TCP via proxy server)
 - Config flow only (no YAML configuration)
 - HACS-compatible
 

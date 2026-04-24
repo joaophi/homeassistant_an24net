@@ -13,6 +13,7 @@ from homeassistant.helpers.issue_registry import (
     async_create_issue,
     async_delete_issue,
 )
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
@@ -23,6 +24,7 @@ from .protocol import (
     ClientAMT,
     EventRecord,
     Status,
+    WrongPasswordError,
     parse_push_event,
 )
 
@@ -110,14 +112,39 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
     @callback
     def _process_repair_event(self, event: EventRecord) -> None:
         """Create or delete repair issues based on event type."""
-        zone = event["zone"]
-        if zone == 0:
-            return
         event_type = CID_EVENT_TYPES.get((event["qualifier"], event["code"]))
-        if event_type == "rf_supervision_failure":
+        zone = event["zone"]
+
+        if event_type == "rf_supervision_failure" and zone:
             self._create_zone_issue("rf_supervision_failure", zone)
-        elif event_type == "rf_supervision_restore":
+        elif event_type == "rf_supervision_restore" and zone:
             async_delete_issue(self.hass, DOMAIN, f"rf_supervision_failure_{zone}")
+        elif event_type == "system_battery_low":
+            async_create_issue(
+                self.hass,
+                DOMAIN,
+                "system_battery_low",
+                is_fixable=False,
+                severity=IssueSeverity.WARNING,
+                translation_key="system_battery_low",
+            )
+        elif event_type == "system_battery_restore":
+            async_delete_issue(self.hass, DOMAIN, "system_battery_low")
+        elif event_type == "burglary" and zone:
+            async_create_issue(
+                self.hass,
+                DOMAIN,
+                f"burglary_{zone}",
+                is_fixable=True,
+                severity=IssueSeverity.CRITICAL,
+                translation_key="burglary",
+                translation_placeholders={"zone": self._zone_name(zone)},
+            )
+        elif event_type == "burglary_restore" and zone:
+            async_delete_issue(self.hass, DOMAIN, f"burglary_{zone}")
+        elif event_type == "disarm":
+            for i in range(1, 25):
+                async_delete_issue(self.hass, DOMAIN, f"burglary_{i}")
 
     @callback
     def _create_zone_issue(self, issue_type: str, zone: int) -> None:
@@ -133,18 +160,30 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         )
 
     def _scan_unresolved_issues(self) -> None:
-        """Scan the ring buffer for unresolved RF failures and low battery."""
+        """Scan the ring buffer for unresolved RF failures, battery, and system issues."""
         rf_status: dict[int, str] = {}
         battery_status: dict[int, str] = {}
+        system_battery: str | None = None
 
         for event in self.__events:  # newest first
             zone = event["zone"]
+            event_type = CID_EVENT_TYPES.get((event["qualifier"], event["code"]))
+            if (
+                event_type in ("system_battery_low", "system_battery_restore")
+                and system_battery is None
+            ):
+                system_battery = event_type
             if zone == 0:
                 continue
-            event_type = CID_EVENT_TYPES.get((event["qualifier"], event["code"]))
-            if event_type in ("rf_supervision_failure", "rf_supervision_restore") and zone not in rf_status:
+            if (
+                event_type in ("rf_supervision_failure", "rf_supervision_restore")
+                and zone not in rf_status
+            ):
                 rf_status[zone] = event_type
-            if event_type in ("low_battery", "battery_restore") and zone not in battery_status:
+            if (
+                event_type in ("low_battery", "battery_restore")
+                and zone not in battery_status
+            ):
                 battery_status[zone] = event_type
 
         for zone, event_type in rf_status.items():
@@ -154,6 +193,16 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         for zone, event_type in battery_status.items():
             if event_type == "low_battery":
                 self._create_zone_issue("low_battery", zone)
+
+        if system_battery == "system_battery_low":
+            async_create_issue(
+                self.hass,
+                DOMAIN,
+                "system_battery_low",
+                is_fixable=False,
+                severity=IssueSeverity.WARNING,
+                translation_key="system_battery_low",
+            )
 
     async def _async_setup(self) -> None:
         try:
@@ -180,6 +229,8 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
     async def _async_update_data(self) -> Data:
         try:
             data = await self.client.status()
+        except WrongPasswordError as ex:
+            raise ConfigEntryAuthFailed from ex
         except Exception as ex:
             raise UpdateFailed("Erro ao atualizar os dados") from ex
 

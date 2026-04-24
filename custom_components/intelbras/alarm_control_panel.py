@@ -7,12 +7,14 @@ from homeassistant.components.alarm_control_panel.const import (
     CodeFormat,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_PIN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .config_flow import CONF_REQUIRE_CODE
 from .const import DOMAIN
 from .coordinator import AMTCoordinator
 from .protocol import OpenZoneError, WrongPasswordError
@@ -26,12 +28,15 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up entry."""
-    async_add_entities([AMTAlarm(config_entry.runtime_data)])
+    async_add_entities([AMTAlarm(config_entry.runtime_data, config_entry)])
 
 
 class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # type: ignore[misc]
-    def __init__(self, coordinator: AMTCoordinator) -> None:
+    def __init__(
+        self, coordinator: AMTCoordinator, config_entry: ConfigEntry[AMTCoordinator]
+    ) -> None:
         super().__init__(coordinator)
+        self._config_entry = config_entry
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":"))
         self._attr_has_entity_name = True
         self._attr_name = None
@@ -41,17 +46,22 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
             manufacturer="Intelbras",
             model="AN-24 Net",
         )
-        self._attr_code_format = CodeFormat.NUMBER
         self._attr_supported_features = (
             AlarmControlPanelEntityFeature.ARM_AWAY
             | AlarmControlPanelEntityFeature.TRIGGER
         )
 
+    def _resolve_code(self, code: str | None) -> str:
+        """Resolve the PIN code, falling back to stored PIN if not required."""
+        if code:
+            return code
+        if not self._config_entry.options.get(CONF_REQUIRE_CODE, True):
+            return self._config_entry.data[CONF_PIN]
+        raise ValueError("Code is required")
+
     async def async_alarm_disarm(self, code: str | None = None) -> None:
-        if code is None:
-            raise ValueError("Code is required to disarm the alarm")
         try:
-            await self.coordinator.client.disarm(code)
+            await self.coordinator.client.disarm(self._resolve_code(code))
         except WrongPasswordError:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -60,10 +70,8 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
         await self.coordinator.async_request_refresh()
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
-        if code is None:
-            raise ValueError("Code is required to arm the alarm")
         try:
-            await self.coordinator.client.arm(code)
+            await self.coordinator.client.arm(self._resolve_code(code))
         except WrongPasswordError:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -77,10 +85,8 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
         await self.coordinator.async_request_refresh()
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
-        if code is None:
-            raise ValueError("Code is required to arm the alarm")
         try:
-            await self.coordinator.client.arm(code, stay=True)
+            await self.coordinator.client.arm(self._resolve_code(code), stay=True)
         except WrongPasswordError:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -94,10 +100,8 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
         await self.coordinator.async_request_refresh()
 
     async def async_alarm_trigger(self, code: str | None = None) -> None:
-        if code is None:
-            raise ValueError("Code is required to trigger the alarm")
         try:
-            await self.coordinator.client.panic(code)
+            await self.coordinator.client.panic(self._resolve_code(code))
         except WrongPasswordError:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -108,6 +112,10 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
+        require_code = self._config_entry.options.get(CONF_REQUIRE_CODE, True)
+        self._attr_code_format = CodeFormat.NUMBER if require_code else None
+        self._attr_code_arm_required = require_code
+
         status = self.coordinator.data["status"]
 
         stay = any(zone["enabled"] and zone["stay"] for zone in status["zones"])
