@@ -64,7 +64,7 @@
                 "name": "Annulled"
             },
             "disable_upstream": {
-                "name": "Disable upstream"
+                "name": "Disable upstream notifications"
             }
         }
     },

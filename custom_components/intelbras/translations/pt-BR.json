@@ -64,7 +64,7 @@
                 "name": "Anulado"
             },
             "disable_upstream": {
-                "name": "Desativar upstream"
+                "name": "Desativar notificações upstream"
             }
         }
     },
