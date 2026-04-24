@@ -15,6 +15,7 @@ from .protocol import ClientAMT
 PLATFORMS: list[Platform] = [
     Platform.ALARM_CONTROL_PANEL,
     Platform.BINARY_SENSOR,
+    Platform.EVENT,
     Platform.SWITCH,
 ]
 

@@ -7,10 +7,19 @@ from datetime import timedelta
 from itertools import batched
 from typing import TypedDict
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .protocol import SYNC_NAME, SYNC_ZONE, ClientAMT, Status
+from .const import SIGNAL_PUSH_EVENT
+from .protocol import (
+    SYNC_NAME,
+    SYNC_ZONE,
+    ClientAMT,
+    EventRecord,
+    Status,
+    parse_push_event,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +52,22 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             "name": "AN24Net",
             "zones": [f"Zone {index + 1:02}" for index in range(24)],
         }
+        self.__events: list[EventRecord] = []
+        self.client.on_push = self._handle_push
+
+    @property
+    def events(self) -> list[EventRecord]:
+        """Events from the ring buffer, newest first."""
+        return self.__events
+
+    @callback
+    def _handle_push(self, data: bytes) -> None:
+        """Handle a PUSH_COMMAND from the alarm panel."""
+        try:
+            event = parse_push_event(data)
+            async_dispatcher_send(self.hass, SIGNAL_PUSH_EVENT, event)
+        except Exception:
+            _LOGGER.warning("Failed to parse push event: %s", data.hex(":"))
 
     async def _async_setup(self) -> None:
         try:
@@ -59,6 +84,11 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             }
         except Exception:
             _LOGGER.warning("Failed to fetch device names, using defaults")
+
+        try:
+            self.__events = await self.client.fetch_events()
+        except Exception:
+            _LOGGER.warning("Failed to fetch event log")
 
     async def _async_update_data(self) -> Data:
         try:
