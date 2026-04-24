@@ -76,12 +76,14 @@ async def handle(
             logger = _logger.getChild(f"client[{mac.hex(':')}]")
             alarm = OPEN_CONNECTIONS.get(mac, None)
             if not alarm:
-                logger.warning("alarm not connected, rejecting")
+                logger.info(f"← CONNECTION: mac={mac.hex(':')}")
+                logger.warning(f"→ CONN_NOT_FOUND | {CONN_NOT_FOUND:02x}")
                 writer.write(bytes([CONN_NOT_FOUND]))
                 await writer.drain()
                 return
 
-            logger.info("connected")
+            logger.info(f"← CONNECTION: mac={mac.hex(':')}")
+            logger.info(f"→ CONN_SUCCESS | {CONN_SUCCESS:02x}")
             writer.write(bytes([CONN_SUCCESS, 0x0E]))
             await writer.drain()
 
