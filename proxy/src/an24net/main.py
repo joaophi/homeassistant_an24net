@@ -96,9 +96,6 @@ async def handle(
                 async def __handle_push() -> None:
                     while True:
                         _, data = await push_queue.get()
-                        logger.info(
-                            f"↑ {command_to_str(PUSH_COMMAND, data)} | {frame_hex(PUSH_COMMAND, data)}"
-                        )
                         await send_command(writer, PUSH_COMMAND, data)
 
                 async def __handle_server() -> None:
@@ -240,9 +237,6 @@ async def handle(
                         try:
                             while True:
                                 _, data = await push_queue.get()
-                                logger.info(
-                                    f"↑ {command_to_str(PUSH_COMMAND, data)} | {frame_hex(PUSH_COMMAND, data)}"
-                                )
                                 await send_command(u_writer, PUSH_COMMAND, data)
                         finally:
                             alarm.on_push.remove(cb)

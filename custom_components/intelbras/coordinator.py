@@ -99,6 +99,10 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             status["zones"][zone - 1]["low_battery"] = True
         elif event_type == "battery_restore" and 1 <= zone <= 24:
             status["zones"][zone - 1]["low_battery"] = False
+        elif event_type == "pgm_activate":
+            status["pgm"] = True
+        elif event_type == "pgm_deactivate":
+            status["pgm"] = False
         else:
             return
 
