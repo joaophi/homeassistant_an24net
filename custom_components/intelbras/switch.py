@@ -52,7 +52,6 @@ class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ig
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_pgm"
         self._attr_has_entity_name = True
         self._attr_translation_key = "pgm"
-        self._attr_entity_registry_enabled_default = False
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, format_mac(coordinator.client.mac.hex(":")))},
             name=coordinator.data["messages"]["name"],
@@ -91,7 +90,6 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # typ
         self._attr_has_entity_name = True
         self._attr_translation_key = "annulled"
         self._attr_entity_category = EntityCategory.CONFIG
-        self._attr_entity_registry_enabled_default = False
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{mac}_zone_{index + 1:02}")},
             name=zone,
@@ -143,7 +141,6 @@ class AMTDisableUpstreamSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
         self._attr_has_entity_name = True
         self._attr_translation_key = "disable_upstream"
         self._attr_entity_category = EntityCategory.CONFIG
-        self._attr_entity_registry_enabled_default = False
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, mac)},
             name=coordinator.data["messages"]["name"],

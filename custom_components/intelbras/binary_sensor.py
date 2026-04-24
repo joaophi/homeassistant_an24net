@@ -36,23 +36,13 @@ async def async_setup_entry(
         for i in new_devices:
             async_add_entities(
                 AMTSensor(
-                    config_entry.runtime_data, i, prop, device_class, enabled, category
+                    config_entry.runtime_data, i, prop, device_class, category
                 )
-                for prop, device_class, enabled, category in [
-                    ("open", BinarySensorDeviceClass.OPENING, True, None),
-                    (
-                        "violated",
-                        BinarySensorDeviceClass.PROBLEM,
-                        False,
-                        EntityCategory.DIAGNOSTIC,
-                    ),
-                    ("stay", None, False, EntityCategory.DIAGNOSTIC),
-                    (
-                        "low_battery",
-                        BinarySensorDeviceClass.BATTERY,
-                        True,
-                        EntityCategory.DIAGNOSTIC,
-                    ),
+                for prop, device_class, category in [
+                    ("open", BinarySensorDeviceClass.OPENING, None),
+                    ("violated", BinarySensorDeviceClass.PROBLEM, EntityCategory.DIAGNOSTIC),
+                    ("stay", None, EntityCategory.DIAGNOSTIC),
+                    ("low_battery", BinarySensorDeviceClass.BATTERY, EntityCategory.DIAGNOSTIC),
                 ]
             )
 
@@ -92,7 +82,6 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type:
         index: int,
         property: str,
         device_class: BinarySensorDeviceClass | None,
-        enabled: bool,
         category: EntityCategory | None,
     ) -> None:
         super().__init__(coordinator, context=index)
@@ -113,7 +102,6 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type:
             self._attr_name = None
         self._attr_device_class = device_class
         self._attr_entity_category = category
-        self._attr_entity_registry_enabled_default = enabled
         self._attr_is_on = coordinator.data["status"]["zones"][index][property]
 
     @callback
