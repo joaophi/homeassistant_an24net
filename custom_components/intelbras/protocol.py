@@ -57,9 +57,54 @@ class MyHomeCommands:
     PGM = (0x50, pgm)
 
 
+def _sync_type_name(t: int) -> str:
+    return {
+        SYNC_EVENT: "EVENT",
+        SYNC_NAME: "NAME",
+        SYNC_USER: "USER",
+        SYNC_ZONE: "ZONE",
+    }.get(t, f"0x{t:02x}")
+
+
+def status_to_str(s: "Status") -> str:
+    parts: list[str] = []
+    if s["partitionedPanel"]:
+        parts.append(f"A={'armed' if s['partitionAArmed'] else 'disarmed'}")
+        parts.append(f"B={'armed' if s['partitionBArmed'] else 'disarmed'}")
+    else:
+        parts.append("armed" if s["partitionAArmed"] else "disarmed")
+    if s["sirenTriggered"]:
+        parts.append("SIREN")
+    open_z = [i + 1 for i, z in enumerate(s["zones"]) if z["enabled"] and z["open"]]
+    violated_z = [
+        i + 1 for i, z in enumerate(s["zones"]) if z["enabled"] and z["violated"]
+    ]
+    stay_z = [i + 1 for i, z in enumerate(s["zones"]) if z["enabled"] and z["stay"]]
+    annulled_z = [
+        i + 1 for i, z in enumerate(s["zones"]) if z["enabled"] and z["annulled"]
+    ]
+    if open_z:
+        parts.append(f"open={open_z}")
+    if violated_z:
+        parts.append(f"violated={violated_z}")
+    if stay_z:
+        parts.append(f"stay={stay_z}")
+    if annulled_z:
+        parts.append(f"annulled={annulled_z}")
+    if s["pgm"]:
+        parts.append("pgm=on")
+    if s["no_energy"]:
+        parts.append("NO_ENERGY")
+    return " ".join(parts)
+
+
 def my_home_to_str(data: bytes) -> str:
     if data[0] == OK:
         return "OK"
+    if data[0] == ERR_WRONG_PASSWORD:
+        return "ERR_WRONG_PASSWORD"
+    if data[0] == ERR_OPEN_ZONE:
+        return "ERR_OPEN_ZONE"
     if data[0] == DELIMITER and data[-1] == DELIMITER:
         password = data[1:5].decode("ascii")
         command = data[5]
@@ -67,59 +112,78 @@ def my_home_to_str(data: bytes) -> str:
         if command == MyHomeCommands.ARM[0] and data == MyHomeCommands.ARM[1](
             stay=True
         ):
-            command = "ARM_STAY"
+            cmd_str = "ARM_STAY"
         elif command == MyHomeCommands.ARM[0]:
-            command = "ARM"
+            cmd_str = "ARM"
         elif command == MyHomeCommands.DISARM[0]:
-            command = "DISARM"
+            cmd_str = "DISARM"
         elif command == MyHomeCommands.PANIC[0] and data == MyHomeCommands.PANIC[1](
             audible=True
         ):
-            command = "PANIC_AUDIBLE"
+            cmd_str = "PANIC_AUDIBLE"
         elif command == MyHomeCommands.PANIC[0] and data == MyHomeCommands.PANIC[1](
             audible=False
         ):
-            command = "PANIC_SILENT"
+            cmd_str = "PANIC_SILENT"
         elif command == MyHomeCommands.STATUS[0]:
-            command = "STATUS"
-        elif command == 0x00 and data[2] == MyHomeCommands.MESSAGES[0]:
-            command = "MESSAGES"
-            if data[5] == SYNC_EVENT:
-                command += " EVENT"
-            elif data[5] == SYNC_NAME:
-                command += " NAME"
-            elif data[5] == SYNC_USER:
-                command += " USER"
-            elif data[5] == SYNC_ZONE:
-                command += " ZONE"
-            else:
-                command += f" 0x{data[5]:02x}"
+            cmd_str = "STATUS"
+        elif command == MyHomeCommands.PGM[0] and data == MyHomeCommands.PGM[1](
+            on=True
+        ):
+            cmd_str = "PGM_ON"
+        elif command == MyHomeCommands.PGM[0] and data == MyHomeCommands.PGM[1](
+            on=False
+        ):
+            cmd_str = "PGM_OFF"
+        elif command == MyHomeCommands.PGM[0]:
+            cmd_str = f"PGM: {data.hex(':')}"
+        elif command == MyHomeCommands.BYPASS[0]:
+            bitmask = int.from_bytes(data[:3], byteorder="little")
+            zones = [i + 1 for i in range(24) if bitmask & (1 << i)]
+            cmd_str = f"BYPASS {zones}"
+        elif (
+            command == 0x00 and len(data) > 5 and data[2] == MyHomeCommands.MESSAGES[0]
+        ):
+            cmd_str = f"MESSAGES {_sync_type_name(data[5])}"
         else:
-            command = f"0x{command:02x}" + (f": {data.hex(':')}" if data else "")
-        return f"CMD = {command}, PASSWORD = {password}"
+            cmd_str = f"0x{command:02x}" + (f": {data.hex(':')}" if data else "")
+        return f"CMD = {cmd_str}, PASSWORD = {password}"
     try:
         type, messages = parse_sync(data)
-        if type == SYNC_EVENT:
-            sync = "EVENT"
-        elif type == SYNC_NAME:
-            sync = "NAME"
-        elif type == SYNC_USER:
-            sync = "USER"
-        elif type == SYNC_ZONE:
-            sync = "ZONE"
-        else:
-            sync = f"0x{type:02x}"
-        return f"SYNC = {sync}, MESSAGES = {messages}"
+        return f"SYNC = {_sync_type_name(type)}, MESSAGES = {messages}"
     except Exception:
         pass
 
     try:
-        status = parse_status(data)
-        return str(status)
+        return status_to_str(parse_status(data))
     except Exception:
         pass
 
     return data.hex(":")
+
+
+def push_event_to_str(data: bytes) -> str:
+    """Decode PUSH payload to human-readable string."""
+    try:
+        event = parse_push_event(data)
+        event_name = CID_EVENT_TYPES.get(
+            (event["qualifier"], event["code"]),
+            f"q={event['qualifier']} code={event['code']}",
+        )
+        parts = [event_name]
+        if event["zone"]:
+            parts.append(f"zone={event['zone']}")
+        parts.append(event["timestamp"])
+        return " ".join(parts)
+    except Exception:
+        return data.hex(":")
+
+
+def frame_hex(command: int, data: bytes) -> str:
+    """Return the full wire-frame as a hex string."""
+    if command in (PING_COMMAND, OK):
+        return f"{command:02x}"
+    return create_command(command, data).hex(":")
 
 
 def command_to_str(command: int, data: bytes) -> str:
@@ -130,13 +194,22 @@ def command_to_str(command: int, data: bytes) -> str:
     if command == VERSION_COMMAND:
         return "VERSION" + (f": {data.decode('ascii')}" if data else "")
     if command == TIME_COMMAND:
-        return "TIME" + (f": tz={-data[0]}" if data else "")
+        if not data:
+            return "TIME"
+        if len(data) == 1:
+            return f"TIME: tz={-data[0]}"
+        return f"TIME: 20{bcd(data[0]):02d}-{bcd(data[1]):02d}-{bcd(data[2]):02d} {bcd(data[4]):02d}:{bcd(data[5]):02d}:{bcd(data[6]):02d}"
     if command == PING_COMMAND:
         return "PING"
     if command == PUSH_COMMAND:
-        return "PUSH" + (f": {data.hex(':')}" if data else "")
+        return "PUSH" + (f": {push_event_to_str(data)}" if data else "")
     if command == OK:
         return "OK"
+    if command == XOR_COMMAND:
+        return "XOR"
+    if command == CONNECTION_COMMAND:
+        mac_str = f": mac={data[9:15].hex(':')}" if len(data) >= 15 else ""
+        return "CONNECTION" + mac_str
     if command == ISEC:
         return "ISEC" + (f": {data.hex(':')}" if data else "")
     if command == MY_HOME:

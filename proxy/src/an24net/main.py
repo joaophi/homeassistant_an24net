@@ -2,6 +2,7 @@ from asyncio import StreamReader, StreamWriter, Task, TaskGroup
 import asyncio
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+from itertools import count
 import logging
 import signal
 import sys
@@ -17,6 +18,7 @@ from an24net.protocol import (
     XOR_COMMAND,
     CONNECTION_COMMAND,
     command_to_str,
+    frame_hex,
     read_command,
     send_command,
 )
@@ -52,6 +54,7 @@ class AlarmConnection:
 
 
 OPEN_CONNECTIONS: dict[bytes, AlarmConnection] = {}
+_conn_ids = count(1)
 
 
 async def handle(
@@ -59,15 +62,17 @@ async def handle(
     reader: StreamReader,
     writer: StreamWriter,
 ) -> None:
-    _logger.info("New connection")
+    peer = writer.get_extra_info("peername")
+    addr = f"{peer[0]}:{peer[1]}" if peer else "unknown"
+    _logger = _logger.getChild(f"conn{next(_conn_ids)}")
+    _logger.info(f"new connection from {addr}")
 
     async with TaskGroup() as tg:
 
         async def __downstream_client(data: bytes) -> None:
-            logger = _logger.getChild("downstream_client")
-
             mac = data[9:15]
-            logger.info(f"MAC: {mac.hex(':')}")
+            logger = _logger.getChild(f"client[{mac.hex(':')}]")
+            logger.info("connected")
 
             alarm = OPEN_CONNECTIONS.get(mac, None)
             if not alarm:
@@ -86,26 +91,28 @@ async def handle(
 
                 async def __handle_push() -> None:
                     while True:
-                        command, data = await push_queue.get()
-                        logger.info(f"sending {command_to_str(command, data)}")
+                        _, data = await push_queue.get()
+                        logger.info(
+                            f"→ {command_to_str(PUSH_COMMAND, data)} | {frame_hex(PUSH_COMMAND, data)}"
+                        )
                         await send_command(writer, PUSH_COMMAND, data)
 
                 async def __handle_server() -> None:
                     while True:
                         command, data = await read_command(reader)
                         logger.info(
-                            f"received: cmd=0x{command:02x} data={data.hex(':')}"
+                            f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
                         )
 
                         try:
                             _, response = await alarm.request(command, data)
                         except TimeoutError:
                             logger.warning(
-                                f"timeout waiting for response to cmd=0x{command:02x}"
+                                f"timeout waiting for alarm response to {command_to_str(command, data)}"
                             )
                             continue
                         logger.info(
-                            f"sending: cmd=0x{command:02x} data={response.hex(':')}"
+                            f"→ {command_to_str(command, response)} | {frame_hex(command, response)}"
                         )
                         await send_command(writer, command, response)
 
@@ -116,21 +123,23 @@ async def handle(
                 alarm.on_push.remove(cb)
 
         async def __downstream_alarm() -> None:
-            logger = _logger.getChild("downstream_alarm")
+            logger = _logger.getChild("alarm")
 
-            logger.info("sending MAC REQUEST")
+            logger.info(f"→ MAC | {frame_hex(MAC_COMMAND, b'')}")
             await send_command(writer, MAC_COMMAND)
             command, mac = await read_command(reader)
             if command != MAC_COMMAND:
                 raise Exception("Invalid data")
-            logger.info(f"MAC: {mac.hex(':')}")
+            logger.info(f"← MAC: {mac.hex(':')} | {frame_hex(MAC_COMMAND, mac)}")
 
-            logger.info("sending VERSION REQUEST")
+            logger.info(f"→ VERSION | {frame_hex(VERSION_COMMAND, b'')}")
             await send_command(writer, VERSION_COMMAND)
             command, version = await read_command(reader)
             if command != VERSION_COMMAND:
                 raise Exception("Invalid data")
-            logger.info(f"Version: {version}")
+            logger.info(
+                f"← VERSION: {version.decode('ascii', errors='replace')} | {frame_hex(VERSION_COMMAND, version)}"
+            )
 
             alarm = AlarmConnection(writer)
             OPEN_CONNECTIONS[mac] = alarm
@@ -139,7 +148,9 @@ async def handle(
 
                 while True:
                     command, data = await read_command(reader)
-                    logger.info(f"received: {command_to_str(command, data)}")
+                    logger.info(
+                        f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
+                    )
 
                     if command == PUSH_COMMAND:
                         for cb in alarm.on_push:
@@ -148,38 +159,36 @@ async def handle(
                     elif command == TIME_COMMAND:
                         tz = -data[0]
                         now = datetime.now(tz=timezone(timedelta(hours=tz)))
-                        logger.info(f"sending TIME: {now}")
-                        await send_command(
-                            writer,
-                            TIME_COMMAND,
-                            bytes.fromhex(
-                                f"{now.year - 2000:02} {now.month:02} {now.day:02} 04 {now.hour:02} {now.minute:02} {now.second:02}"
-                            ),
+                        time_data = bytes.fromhex(
+                            f"{now.year - 2000:02} {now.month:02} {now.day:02} 04 {now.hour:02} {now.minute:02} {now.second:02}"
                         )
+                        logger.info(
+                            f"→ TIME: {now} | {frame_hex(TIME_COMMAND, time_data)}"
+                        )
+                        await send_command(writer, TIME_COMMAND, time_data)
                     elif command == PING_COMMAND:
                         await send_command(writer, OK)
                     elif alarm.resolve(command, data):
                         await send_command(writer, OK)
                     else:
-                        logger.info("sending OK")
+                        logger.info("→ OK | fe")
                         await send_command(writer, OK)
             finally:
                 OPEN_CONNECTIONS.pop(mac)
 
         async def __downstream() -> None:
-            logger = _logger.getChild("downstream")
-
             while True:
                 command, data = await read_command(reader)
-                logger.info(f"received {command_to_str(command, data)}")
+                _logger.info(
+                    f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
+                )
 
                 if command == XOR_COMMAND:
-                    logger.info("sending 0x00 - no encryption")
+                    _logger.info(f"→ 0x00 (no encryption) | {frame_hex(0x00, b'')}")
                     await send_command(writer, 0x00)
                 elif command == START_COMMAND:
-                    logger.info("sending OK")
+                    _logger.info("→ OK | fe")
                     await send_command(writer, OK)
-
                     return await __downstream_alarm()
                 elif command == CONNECTION_COMMAND:
                     return await __downstream_client(data)
@@ -199,23 +208,22 @@ async def handle(
                         host="amt.intelbras.com.br",
                         port=9009,
                     )
-                    logger.info("connected")
+                    logger.info("connected to amt.intelbras.com.br:9009")
 
-                    logger.info("sending START")
-                    await send_command(
-                        u_writer,
-                        START_COMMAND,
-                        b"\x45\x12\x12\x52\x57\x19",
+                    start_data = b"\x45\x12\x12\x52\x57\x19"
+                    logger.info(
+                        f"→ {command_to_str(START_COMMAND, start_data)} | {frame_hex(START_COMMAND, start_data)}"
                     )
+                    await send_command(u_writer, START_COMMAND, start_data)
                     command, _ = await read_command(u_reader)
                     if command != OK:
                         raise Exception("Invalid data")
-                    logger.info("start ok received")
+                    logger.info("← OK | fe")
 
                     async def __ping() -> None:
                         while True:
                             await asyncio.sleep(30)
-                            logger.info("sending PING")
+                            logger.info(f"→ PING | {frame_hex(PING_COMMAND, b'')}")
                             await send_command(u_writer, PING_COMMAND)
 
                     push_queue = asyncio.Queue[tuple[int, bytes]]()
@@ -225,8 +233,10 @@ async def handle(
                     async def __handle_push() -> None:
                         try:
                             while True:
-                                command, data = await push_queue.get()
-                                logger.info(f"sending {command_to_str(command, data)}")
+                                _, data = await push_queue.get()
+                                logger.info(
+                                    f"→ {command_to_str(PUSH_COMMAND, data)} | {frame_hex(PUSH_COMMAND, data)}"
+                                )
                                 await send_command(u_writer, PUSH_COMMAND, data)
                         finally:
                             alarm.on_push.remove(cb)
@@ -235,7 +245,7 @@ async def handle(
                         while True:
                             command, data = await read_command(u_reader)
                             logger.info(
-                                f"received cmd=0x{command:02x} data={data.hex(':')}"
+                                f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
                             )
 
                             if command == OK:
@@ -246,18 +256,18 @@ async def handle(
                                 response = version
                             else:
                                 logger.info(
-                                    f"sending to alarm cmd=0x{command:02x} data={data.hex(':')}"
+                                    f"↓ relay to alarm: {command_to_str(command, data)}"
                                 )
                                 try:
                                     _, response = await alarm.request(command, data)
                                 except TimeoutError:
                                     logger.warning(
-                                        f"timeout waiting for response to cmd=0x{command:02x}"
+                                        f"timeout waiting for alarm response to {command_to_str(command, data)}"
                                     )
                                     continue
 
                             logger.info(
-                                f"sending cmd=0x{command:02x} data={response.hex(':')}"
+                                f"→ {command_to_str(command, response)} | {frame_hex(command, response)}"
                             )
                             await send_command(u_writer, command, response)
 
@@ -267,7 +277,7 @@ async def handle(
                         tg.create_task(__ping())
 
                 except Exception:
-                    logger.exception("error")
+                    logger.exception("upstream connection error")
                     await asyncio.sleep(5)
 
         tg.create_task(__downstream())
