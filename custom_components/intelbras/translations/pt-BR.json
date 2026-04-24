@@ -34,14 +34,6 @@
                 "name": "Bateria fraca"
             }
         },
-        "event": {
-            "system_event": {
-                "name": "Eventos"
-            },
-            "zone_event": {
-                "name": "Eventos"
-            }
-        },
         "switch": {
             "pgm": {
                 "name": "PGM"
@@ -49,6 +41,16 @@
             "annulled": {
                 "name": "Anulado"
             }
+        }
+    },
+    "issues": {
+        "rf_supervision_failure": {
+            "title": "Falha na supervisão RF: {zone}",
+            "description": "Zona **{zone}** perdeu comunicação RF com a central de alarme. Verifique se o sensor está ligado e dentro do alcance."
+        },
+        "low_battery": {
+            "title": "Bateria fraca: {zone}",
+            "description": "Zona **{zone}** está com bateria fraca. Substitua a bateria para manter o funcionamento adequado."
         }
     },
     "exceptions": {

@@ -34,14 +34,6 @@
         "name": "Low battery"
       }
     },
-    "event": {
-      "system_event": {
-        "name": "Events"
-      },
-      "zone_event": {
-        "name": "Events"
-      }
-    },
     "switch": {
       "pgm": {
         "name": "PGM"
@@ -49,6 +41,16 @@
       "annulled": {
         "name": "Annulled"
       }
+    }
+  },
+  "issues": {
+    "rf_supervision_failure": {
+      "title": "RF supervision failure: {zone}",
+      "description": "Zone **{zone}** has lost RF communication with the alarm panel. Check if the sensor is powered on and within range."
+    },
+    "low_battery": {
+      "title": "Low battery: {zone}",
+      "description": "Zone **{zone}** has a low battery. Replace the battery to maintain proper operation."
     }
   },
   "exceptions": {
