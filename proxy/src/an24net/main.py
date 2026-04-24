@@ -15,10 +15,15 @@ from an24net.protocol import (
     PING_COMMAND,
     PUSH_COMMAND,
     OK,
+    MY_HOME,
     XOR_COMMAND,
     CONNECTION_COMMAND,
+    PROXY_COMMAND,
+    PROXY_UPSTREAM_PUSH,
     CONN_NOT_FOUND,
     CONN_SUCCESS,
+    CONN_PROXY,
+    MyHomeCommands,
     command_to_str,
     frame_hex,
     read_command,
@@ -32,6 +37,7 @@ class AlarmConnection:
         self.on_push: list[Callable[[tuple[int, bytes]], None]] = []
         self._lock = asyncio.Lock()
         self._pending: asyncio.Future[tuple[int, bytes]] | None = None
+        self.upstream_enabled = True
 
     async def request(self, command: int, data: bytes) -> tuple[int, bytes]:
         """Send a command to the alarm and wait for its response.
@@ -82,8 +88,8 @@ async def handle(
                 return
 
             logger.info(f"← CONNECTION: mac={mac.hex(':')}")
-            logger.info(f"→ CONN_SUCCESS | {CONN_SUCCESS:02x}")
-            writer.write(bytes([CONN_SUCCESS, 0x0E]))
+            logger.info(f"→ CONN_SUCCESS (proxy) | {CONN_SUCCESS:02x}:{CONN_PROXY:02x}")
+            writer.write(bytes([CONN_SUCCESS, CONN_PROXY]))
             await writer.drain()
 
             push_queue = asyncio.Queue[tuple[int, bytes]]()
@@ -103,6 +109,15 @@ async def handle(
                         logger.info(
                             f"↓ {command_to_str(command, data)} | {frame_hex(command, data)}"
                         )
+                        if command == PROXY_COMMAND:
+                            if data[0] == PROXY_UPSTREAM_PUSH:
+                                alarm.upstream_enabled = bool(data[1])
+                            logger.info(
+                                f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
+                            )
+                            logger.info(f"→ OK | {OK:02x}")
+                            await send_command(writer, OK)
+                            continue
                         try:
                             _, response = await alarm.request(command, data)
                         except TimeoutError:
@@ -110,6 +125,8 @@ async def handle(
                                 f"timeout waiting for alarm response to {command_to_str(command, data)}"
                             )
                             continue
+                        if command == MY_HOME and data[5] == MyHomeCommands.STATUS.code:
+                            response = bytes([*response, 0x01 if alarm.upstream_enabled else 0x00])
                         logger.info(
                             f"↑ {command_to_str(command, response)} | {frame_hex(command, response)}"
                         )
@@ -220,7 +237,7 @@ async def handle(
                     command, _ = await read_command(u_reader)
                     if command != OK:
                         raise Exception("Invalid data")
-                    logger.info("← OK")
+                    logger.info(f"← OK | {OK:02x}")
 
                     async def __ping() -> None:
                         while True:
@@ -236,7 +253,10 @@ async def handle(
                         try:
                             while True:
                                 _, data = await push_queue.get()
-                                await send_command(u_writer, PUSH_COMMAND, data)
+                                if alarm.upstream_enabled:
+                                    await send_command(u_writer, PUSH_COMMAND, data)
+                                else:
+                                    logger.info(f"upstream push suppressed | {frame_hex(PUSH_COMMAND, data)}")
                         finally:
                             alarm.on_push.remove(cb)
 
@@ -245,16 +265,16 @@ async def handle(
                             command, data = await read_command(u_reader)
 
                             if command == OK:
-                                logger.info("← OK")
+                                logger.info(f"← OK | {OK:02x}")
                                 continue
                             elif command == MAC_COMMAND:
-                                logger.info("← MAC")
+                                logger.info(f"← MAC | {frame_hex(MAC_COMMAND, b'')}")
                                 logger.info(
                                     f"→ MAC: {mac.hex(':')} | {frame_hex(MAC_COMMAND, mac)}"
                                 )
                                 await send_command(u_writer, MAC_COMMAND, mac)
                             elif command == VERSION_COMMAND:
-                                logger.info("← VERSION")
+                                logger.info(f"← VERSION | {frame_hex(VERSION_COMMAND, b'')}")
                                 logger.info(
                                     f"→ VERSION: {version.decode('ascii', errors='replace')} | {frame_hex(VERSION_COMMAND, version)}"
                                 )

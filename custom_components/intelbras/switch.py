@@ -4,6 +4,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -20,7 +21,11 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up entry."""
-    async_add_entities([AMTPGMSwitch(config_entry.runtime_data)])
+    coordinator = config_entry.runtime_data
+    entities: list[SwitchEntity] = [AMTPGMSwitch(coordinator)]
+    if coordinator.client.is_proxy:
+        entities.append(AMTDisableUpstreamSwitch(coordinator))
+    async_add_entities(entities)
 
     enabled_zones: set[int] = set()
 
@@ -117,4 +122,47 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # typ
         """Handle updated data from the coordinator."""
         state = self.coordinator.data["status"]["zones"][self._index]
         self._attr_is_on = state["annulled"]
+        self.async_write_ha_state()
+
+
+class AMTDisableUpstreamSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ignore[misc]
+    """Switch to disable proxy upstream push forwarding to Intelbras cloud."""
+
+    def __init__(self, coordinator: AMTCoordinator) -> None:
+        super().__init__(coordinator)
+        mac = format_mac(coordinator.client.mac.hex(":"))
+        self._attr_unique_id = f"{mac}_disable_upstream"
+        self._attr_has_entity_name = True
+        self._attr_translation_key = "disable_upstream"
+        self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_entity_registry_enabled_default = False
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, mac)},
+            name=coordinator.data["messages"]["name"],
+            manufacturer="Intelbras",
+            model="AN-24 Net",
+        )
+        self._attr_is_on = not coordinator.data["status"]["upstream_push"]
+
+    def _check_proxy(self) -> None:
+        if not self.coordinator.client.is_proxy:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="not_proxied",
+            )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Disable upstream push forwarding."""
+        self._check_proxy()
+        await self.coordinator.client.set_upstream_push(enabled=False)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Enable upstream push forwarding."""
+        self._check_proxy()
+        await self.coordinator.client.set_upstream_push(enabled=True)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._attr_is_on = not self.coordinator.data["status"]["upstream_push"]
         self.async_write_ha_state()

@@ -17,6 +17,10 @@ MY_HOME = 0xE9
 ISEC = 0xE7
 XOR_COMMAND = 0xFB
 CONNECTION_COMMAND = 0xE5
+PROXY_COMMAND = 0xF2
+
+# Proxy subcommands
+PROXY_UPSTREAM_PUSH = 0x01
 
 # MY_HOME framing
 DELIMITER = 0x21
@@ -41,6 +45,7 @@ TYPE_ANDROID = 0x06
 CONN_SUCCESS = 0xE6
 CONN_NOT_FOUND = 0xE4
 CONN_BUSY = 0xE8
+CONN_PROXY = 0x0F
 
 # MY_HOME error responses
 ERR_WRONG_PASSWORD = 0xE1
@@ -268,6 +273,11 @@ def command_to_str(command: int, data: bytes) -> str:
         return "ISEC" + (f": {data.hex(':')}" if data else "")
     if command == MY_HOME:
         return "MY_HOME" + (f": {my_home_to_str(data)}" if data else "")
+    if command == PROXY_COMMAND:
+        if data[0] == PROXY_UPSTREAM_PUSH:
+            state = "enabled" if data[1] else "disabled"
+            return f"PROXY: upstream push {state}"
+        return f"PROXY: 0x{data[0]:02x} {data[1:].hex(':')}"
     return f"0x{command:02x}" + (f": {data.hex(':')}" if data else "")
 
 
@@ -325,6 +335,7 @@ class Status(TypedDict):
     zones: list[ZoneStatus]
     pgm: bool
     no_energy: bool
+    upstream_push: bool | None
 
 
 def parse_status(data: bytes) -> Status:
@@ -361,6 +372,7 @@ def parse_status(data: bytes) -> Status:
         ],
         "pgm": bool(data[37] & (1 << 6)),
         "no_energy": bool(data[28] & (1 << 0)),
+        "upstream_push": None,
     }
 
 
@@ -620,6 +632,7 @@ class ClientAMT:
         self._send = asyncio.Queue[tuple[int, bytes, asyncio.Future[None]]]()
         self._receive: list[asyncio.Queue[tuple[int, bytes]]] = []
         self._request_lock = asyncio.Lock()
+        self.is_proxy = False
         # Called when PUSH_COMMAND (0xB4) is received from the panel.
         # Set by the coordinator to parse Contact ID events and dispatch them.
         self.on_push: Callable[[bytes], None] | None = None
@@ -664,7 +677,8 @@ class ClientAMT:
                     if result != CONN_SUCCESS:
                         raise Exception("Erro")
 
-                    _ = await reader.readexactly(1)
+                    [flags] = await reader.readexactly(1)
+                    self.is_proxy = flags == CONN_PROXY
 
                 async with asyncio.TaskGroup() as tg:
                     tg.create_task(read(reader))
@@ -753,6 +767,14 @@ class ClientAMT:
         )
         return parse_sync(data)[1]
 
+    async def set_upstream_push(self, *, enabled: bool) -> None:
+        """Send upstream push enable/disable command to the proxy server."""
+        future = asyncio.Future[None]()
+        self._send.put_nowait(
+            (PROXY_COMMAND, bytes([PROXY_UPSTREAM_PUSH, 0x01 if enabled else 0x00]), future)
+        )
+        await future
+
     async def status(self) -> Status:
         data = await self._request(
             MY_HOME,
@@ -760,7 +782,10 @@ class ClientAMT:
                 self.pin, MyHomeCommands.STATUS.code, MyHomeCommands.STATUS.factory()
             ),
         )
-        return parse_status(data)
+        status = parse_status(data)
+        if self.is_proxy:
+            status["upstream_push"] = bool(data[-1])
+        return status
 
     async def get_event_pointer(self) -> int:
         """Get event log write pointer (0–127) in the 128-entry ring buffer."""

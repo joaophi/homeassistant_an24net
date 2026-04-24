@@ -62,6 +62,9 @@
             },
             "annulled": {
                 "name": "Anulado"
+            },
+            "disable_upstream": {
+                "name": "Desativar upstream"
             }
         }
     },
@@ -99,6 +102,9 @@
         },
         "wrong_password": {
             "message": "Senha incorreta"
+        },
+        "not_proxied": {
+            "message": "Não conectado através do proxy"
         }
     }
 }
