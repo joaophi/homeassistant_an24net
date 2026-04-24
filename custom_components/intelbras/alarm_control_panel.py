@@ -44,14 +44,15 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":"))
         self._attr_has_entity_name = True
         self._attr_name = None
+        status = coordinator.data["status"]
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._attr_unique_id)},
             connections={(CONNECTION_NETWORK_MAC, self._attr_unique_id)},
             name=coordinator.data["messages"]["name"],
             manufacturer="Intelbras",
             model="AN-24 Net",
+            sw_version=str(status["version"]),
         )
-        status = coordinator.data["status"]
 
         require_code = config_entry.options.get(CONF_REQUIRE_CODE, True)
         self._attr_code_format = CodeFormat.NUMBER if require_code else None
