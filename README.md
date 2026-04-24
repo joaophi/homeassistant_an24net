@@ -41,8 +41,50 @@ You will need:
 | MAC   | Alarm panel MAC address |
 | PIN   | Alarm panel PIN code |
 
+## Proxy Server
+
+The alarm panel connects outbound to Intelbras cloud (`amt.intelbras.com.br:9009`). The proxy server intercepts this connection so Home Assistant can communicate with the panel locally. It also maintains the upstream connection to Intelbras cloud, so the original app keeps working.
+
+### Running the proxy
+
+From the `proxy/` directory:
+
+```bash
+docker compose up -d
+```
+
+This builds and starts the proxy server listening on port `9009`.
+
+### Network setup
+
+The alarm panel must be redirected to the proxy server instead of the Intelbras cloud. Configure a port forwarding / DNAT rule on your router to redirect the alarm's outbound traffic on port `9009` to the machine running the proxy.
+
+Example OpenWrt firewall rule (`/etc/config/firewall`):
+
+```
+config redirect
+    option dest '<DEST_ZONE>'
+    option target 'DNAT'
+    option name 'Redirect-Alarme-Server'
+    option src '<SRC_ZONE>'
+    option src_dport '9009'
+    option dest_ip '<PROXY_SERVER_IP>'
+    list proto 'tcp'
+    option family 'ipv4'
+    list src_mac '<ALARM_PANEL_MAC>'
+    option dest_port '9009'
+```
+
+Replace the placeholders:
+
+- `<SRC_ZONE>` — the firewall zone where the alarm panel is connected (e.g. `lan`, `iot`)
+- `<DEST_ZONE>` — the firewall zone where the proxy server is running (e.g. `lan`, `server`)
+- `<PROXY_SERVER_IP>` — IP of the machine running the proxy
+- `<ALARM_PANEL_MAC>` — your alarm panel's MAC address
+
 ## Requirements
 
 - Home Assistant 2024.1+
 - Intelbras AN-24 Net alarm panel
-- Network connectivity to the panel (via proxy server on port 9009)
+- Proxy server running on the local network (see above)
+- Router with DNAT/port forwarding capability to redirect alarm traffic
