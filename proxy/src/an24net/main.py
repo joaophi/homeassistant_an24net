@@ -95,7 +95,7 @@ async def handle(
                     while True:
                         _, data = await push_queue.get()
                         logger.info(
-                            f"→ {command_to_str(PUSH_COMMAND, data)} | {frame_hex(PUSH_COMMAND, data)}"
+                            f"↑ {command_to_str(PUSH_COMMAND, data)} | {frame_hex(PUSH_COMMAND, data)}"
                         )
                         await send_command(writer, PUSH_COMMAND, data)
 
@@ -103,9 +103,8 @@ async def handle(
                     while True:
                         command, data = await read_command(reader)
                         logger.info(
-                            f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
+                            f"↓ {command_to_str(command, data)} | {frame_hex(command, data)}"
                         )
-
                         try:
                             _, response = await alarm.request(command, data)
                         except TimeoutError:
@@ -114,7 +113,7 @@ async def handle(
                             )
                             continue
                         logger.info(
-                            f"→ {command_to_str(command, response)} | {frame_hex(command, response)}"
+                            f"↑ {command_to_str(command, response)} | {frame_hex(command, response)}"
                         )
                         await send_command(writer, command, response)
 
@@ -150,11 +149,11 @@ async def handle(
 
                 while True:
                     command, data = await read_command(reader)
-                    logger.info(
-                        f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
-                    )
 
                     if command == PUSH_COMMAND:
+                        logger.info(
+                            f"↑ {command_to_str(command, data)} | {frame_hex(command, data)}"
+                        )
                         for cb in alarm.on_push:
                             cb((command, data))
                         await send_command(writer, OK)
@@ -165,6 +164,9 @@ async def handle(
                             f"{now.year - 2000:02} {now.month:02} {now.day:02} 04 {now.hour:02} {now.minute:02} {now.second:02}"
                         )
                         logger.info(
+                            f"← TIME: tz={tz} | {frame_hex(TIME_COMMAND, data)}"
+                        )
+                        logger.info(
                             f"→ TIME: {now} | {frame_hex(TIME_COMMAND, time_data)}"
                         )
                         await send_command(writer, TIME_COMMAND, time_data)
@@ -173,7 +175,9 @@ async def handle(
                     elif alarm.resolve(command, data):
                         await send_command(writer, OK)
                     else:
-                        logger.info("→ OK | fe")
+                        logger.info(
+                            f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
+                        )
                         await send_command(writer, OK)
             finally:
                 OPEN_CONNECTIONS.pop(mac)
@@ -181,15 +185,13 @@ async def handle(
         async def __downstream() -> None:
             while True:
                 command, data = await read_command(reader)
-                _logger.info(
-                    f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
-                )
 
                 if command == XOR_COMMAND:
-                    _logger.info(f"→ 0x00 (no encryption) | {frame_hex(0x00, b'')}")
+                    _logger.info(f"← XOR | {frame_hex(XOR_COMMAND, b'')}")
+                    _logger.info(f"→ no encryption | {frame_hex(0x00, b'')}")
                     await send_command(writer, 0x00)
                 elif command == START_COMMAND:
-                    _logger.info("→ OK | fe")
+                    _logger.info("← START")
                     await send_command(writer, OK)
                     return await __downstream_alarm()
                 elif command == CONNECTION_COMMAND:
@@ -213,14 +215,12 @@ async def handle(
                     logger.info("connected to amt.intelbras.com.br:9009")
 
                     start_data = b"\x45\x12\x12\x52\x57\x19"
-                    logger.info(
-                        f"→ {command_to_str(START_COMMAND, start_data)} | {frame_hex(START_COMMAND, start_data)}"
-                    )
+                    logger.info(f"→ START | {frame_hex(START_COMMAND, start_data)}")
                     await send_command(u_writer, START_COMMAND, start_data)
                     command, _ = await read_command(u_reader)
                     if command != OK:
                         raise Exception("Invalid data")
-                    logger.info("← OK | fe")
+                    logger.info("← OK")
 
                     async def __ping() -> None:
                         while True:
@@ -237,7 +237,7 @@ async def handle(
                             while True:
                                 _, data = await push_queue.get()
                                 logger.info(
-                                    f"→ {command_to_str(PUSH_COMMAND, data)} | {frame_hex(PUSH_COMMAND, data)}"
+                                    f"↑ {command_to_str(PUSH_COMMAND, data)} | {frame_hex(PUSH_COMMAND, data)}"
                                 )
                                 await send_command(u_writer, PUSH_COMMAND, data)
                         finally:
@@ -246,19 +246,24 @@ async def handle(
                     async def __handle_server() -> None:
                         while True:
                             command, data = await read_command(u_reader)
-                            logger.info(
-                                f"← {command_to_str(command, data)} | {frame_hex(command, data)}"
-                            )
 
                             if command == OK:
                                 continue
                             elif command == MAC_COMMAND:
-                                response = mac
+                                logger.info("← MAC")
+                                logger.info(
+                                    f"→ MAC: {mac.hex(':')} | {frame_hex(MAC_COMMAND, mac)}"
+                                )
+                                await send_command(u_writer, MAC_COMMAND, mac)
                             elif command == VERSION_COMMAND:
-                                response = version
+                                logger.info("← VERSION")
+                                logger.info(
+                                    f"→ VERSION: {version.decode('ascii', errors='replace')} | {frame_hex(VERSION_COMMAND, version)}"
+                                )
+                                await send_command(u_writer, VERSION_COMMAND, version)
                             else:
                                 logger.info(
-                                    f"↓ relay to alarm: {command_to_str(command, data)}"
+                                    f"↓ {command_to_str(command, data)} | {frame_hex(command, data)}"
                                 )
                                 try:
                                     _, response = await alarm.request(command, data)
@@ -267,11 +272,10 @@ async def handle(
                                         f"timeout waiting for alarm response to {command_to_str(command, data)}"
                                     )
                                     continue
-
-                            logger.info(
-                                f"→ {command_to_str(command, response)} | {frame_hex(command, response)}"
-                            )
-                            await send_command(u_writer, command, response)
+                                logger.info(
+                                    f"↑ {command_to_str(command, response)} | {frame_hex(command, response)}"
+                                )
+                                await send_command(u_writer, command, response)
 
                     async with asyncio.TaskGroup() as tg:
                         tg.create_task(__handle_push())
