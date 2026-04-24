@@ -616,9 +616,7 @@ class ClientAMT:
         """Get event log cursor. Returns (pointer, total_count)."""
         payload = bytes([0x00, 0x00, 0xF1, 0x00, 0x03, 0x30, 0x03, 0x00])
         payload = bytes([*payload, checksum(payload)])
-        data = await self._request(
-            MY_HOME, my_home_data(self.pin, 0x00, payload)
-        )
+        data = await self._request(MY_HOME, my_home_data(self.pin, 0x00, payload))
         pointer = data[9]
         total = data[9] * 256 + data[10]
         return pointer, total
@@ -642,16 +640,21 @@ class ClientAMT:
             index_bytes: list[int] = []
             for idx in batch:
                 index_bytes.extend([0x00, idx])
-            payload = bytes([
-                0x00, 0x00, 0xF1, 0x00,
-                len(index_bytes) + 2, 0x39, 0x00,
-                *index_bytes,
-            ])
+            payload = bytes(
+                [
+                    0x00,
+                    0x00,
+                    0xF1,
+                    0x00,
+                    len(index_bytes) + 2,
+                    0x39,
+                    0x00,
+                    *index_bytes,
+                ]
+            )
             payload = bytes([*payload, checksum(payload)])
 
-            data = await self._request(
-                MY_HOME, my_home_data(self.pin, 0x00, payload)
-            )
+            data = await self._request(MY_HOME, my_home_data(self.pin, 0x00, payload))
 
             if len(data) > 6 and data[6] == 0xF0:
                 continue

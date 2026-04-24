@@ -16,6 +16,28 @@
                     "pin": "Código PIN",
                     "port": "Porta"
                 }
+            },
+            "options": {
+                "data": {
+                    "require_code": "Exigir código PIN"
+                }
+            },
+            "reconfigure": {
+                "data": {
+                    "host": "Host",
+                    "pin": "Código PIN",
+                    "port": "Porta",
+                    "require_code": "Exigir código PIN"
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "require_code": "Exigir código PIN"
+                }
             }
         }
     },
@@ -51,6 +73,24 @@
         "low_battery": {
             "title": "Bateria fraca: {zone}",
             "description": "Zona **{zone}** está com bateria fraca. Substitua a bateria para manter o funcionamento adequado."
+        },
+        "system_battery_low": {
+            "title": "Bateria do sistema fraca",
+            "description": "A bateria da central de alarme está fraca. Substitua ou carregue a bateria para garantir o funcionamento durante quedas de energia."
+        },
+        "burglary": {
+            "title": "Alarme de intrusão: {zone}",
+            "description": "Zona **{zone}** disparou um alarme de intrusão.",
+            "fix_flow": {
+                "step": {
+                    "init": {
+                        "description": "Digite o código PIN para desarmar o alarme.",
+                        "data": {
+                            "pin": "Código PIN"
+                        }
+                    }
+                }
+            }
         }
     },
     "exceptions": {

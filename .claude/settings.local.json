@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.hacs.xyz)",
+      "WebFetch(domain:developers.home-assistant.io)"
+    ]
+  }
+}

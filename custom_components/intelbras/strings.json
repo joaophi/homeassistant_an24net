@@ -8,6 +8,19 @@
           "mac": "MAC",
           "pin": "[%key:common::config_flow::data::pin%]"
         }
+      },
+      "options": {
+        "data": {
+          "require_code": "Require PIN code"
+        }
+      },
+      "reconfigure": {
+        "data": {
+          "host": "[%key:common::config_flow::data::host%]",
+          "port": "[%key:common::config_flow::data::port%]",
+          "pin": "[%key:common::config_flow::data::pin%]",
+          "require_code": "Require PIN code"
+        }
       }
     },
     "error": {
@@ -17,6 +30,15 @@
     },
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "require_code": "Require PIN code"
+        }
+      }
     }
   },
   "entity": {
@@ -51,6 +73,24 @@
     "low_battery": {
       "title": "Low battery: {zone}",
       "description": "Zone **{zone}** has a low battery. Replace the battery to maintain proper operation."
+    },
+    "system_battery_low": {
+      "title": "System battery low",
+      "description": "The alarm panel battery is low. Replace or charge the battery to ensure the system operates during power outages."
+    },
+    "burglary": {
+      "title": "Burglary alarm: {zone}",
+      "description": "Zone **{zone}** triggered a burglary alarm.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "description": "Enter your PIN code to disarm the alarm.",
+            "data": {
+              "pin": "[%key:common::config_flow::data::pin%]"
+            }
+          }
+        }
+      }
     }
   },
   "exceptions": {
