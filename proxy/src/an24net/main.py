@@ -315,7 +315,14 @@ async def main() -> None:
             tasks.add(task)
         try:
             await handle(logger, reader, writer)
-        except Exception:
+        except* (
+            asyncio.IncompleteReadError,
+            ConnectionResetError,
+            BrokenPipeError,
+            ConnectionError,
+        ):
+            logger.info("connection closed")
+        except* Exception:
             logger.exception("connection error")
         finally:
             writer.close()
