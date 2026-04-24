@@ -1,11 +1,10 @@
-from asyncio import Queue, QueueFull, StreamReader, StreamWriter, Task, TaskGroup
+from asyncio import StreamReader, StreamWriter, Task, TaskGroup
 import asyncio
-from contextlib import contextmanager
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 import logging
 import signal
 import sys
-from typing import Optional
 
 from an24net.protocol import (
     START_COMMAND,
@@ -23,38 +22,36 @@ from an24net.protocol import (
 )
 
 
-class Listenable[T]:
-    def __init__(self) -> None:
-        self._listeners: list[Queue[T]] = []
+class AlarmConnection:
+    def __init__(self, writer: StreamWriter) -> None:
+        self.writer = writer
+        self.on_push: list[Callable[[tuple[int, bytes]], None]] = []
+        self._lock = asyncio.Lock()
+        self._pending: asyncio.Future[tuple[int, bytes]] | None = None
 
-    def emit(self, data: T) -> None:
-        for listener in self._listeners:
+    async def request(self, command: int, data: bytes) -> tuple[int, bytes]:
+        """Send a command to the alarm and wait for its response.
+
+        Serialized by lock so only one command is in-flight at a time.
+        """
+        async with self._lock:
+            self._pending = asyncio.Future[tuple[int, bytes]]()
             try:
-                listener.put_nowait(data)
-            except QueueFull:
-                pass
+                await send_command(self.writer, command, data)
+                async with asyncio.timeout(5):
+                    return await self._pending
+            finally:
+                self._pending = None
 
-    def add_listener(self, queue: Optional[Queue[T]] = None) -> Queue[T]:
-        queue = queue or Queue[T]()
-        self._listeners.append(queue)
-        return queue
-
-    def remove_listener(self, queue: Queue[T]) -> None:
-        self._listeners.remove(queue)
-
-    def listeners(self) -> int:
-        return len(self._listeners)
-
-    @contextmanager
-    def listener(self, queue: Optional[Queue[T]] = None):
-        queue = self.add_listener(queue)
-        try:
-            yield queue
-        finally:
-            self.remove_listener(queue)
+    def resolve(self, command: int, data: bytes) -> bool:
+        """Route a response from the alarm to the pending requester."""
+        if self._pending is not None and not self._pending.done():
+            self._pending.set_result((command, data))
+            return True
+        return False
 
 
-OPEN_CONNECTIONS: dict[bytes, tuple[StreamWriter, Listenable[tuple[int, bytes]]]] = {}
+OPEN_CONNECTIONS: dict[bytes, AlarmConnection] = {}
 
 
 async def handle(
@@ -81,41 +78,42 @@ async def handle(
             writer.write(b"\xe6\x0e")
             await writer.drain()
 
-            async def __handle_push() -> None:
-                with alarm[1].listener() as listener:
+            push_queue = asyncio.Queue[tuple[int, bytes]]()
+            cb = push_queue.put_nowait
+            alarm.on_push.append(cb)
+
+            try:
+
+                async def __handle_push() -> None:
                     while True:
-                        command, data = await listener.get()
-                        if command == PUSH_COMMAND:
-                            logger.info(f"sending {command_to_str(command, data)}")
-                            await send_command(writer, PUSH_COMMAND, data)
+                        command, data = await push_queue.get()
+                        logger.info(f"sending {command_to_str(command, data)}")
+                        await send_command(writer, PUSH_COMMAND, data)
 
-            async def __handle_server() -> None:
-                while True:
-                    command, data = await read_command(reader)
-                    logger.info(f"received: cmd=0x{command:02x} data={data.hex(':')}")
-
-                    try:
-                        with alarm[1].listener() as listener:
-                            await send_command(alarm[0], command, data)
-                            async with asyncio.timeout(5):
-                                while True:
-                                    command_, data = await listener.get()
-                                    if command_ == command:
-                                        response = data
-                                        break
-                    except TimeoutError:
-                        logger.warning(
-                            f"timeout waiting for response to cmd=0x{command:02x}"
+                async def __handle_server() -> None:
+                    while True:
+                        command, data = await read_command(reader)
+                        logger.info(
+                            f"received: cmd=0x{command:02x} data={data.hex(':')}"
                         )
-                        continue
-                    logger.info(
-                        f"sending: cmd=0x{command:02x} data={response.hex(':')}"
-                    )
-                    await send_command(writer, command, response)
 
-            async with asyncio.TaskGroup() as tg:
-                tg.create_task(__handle_push())
-                tg.create_task(__handle_server())
+                        try:
+                            _, response = await alarm.request(command, data)
+                        except TimeoutError:
+                            logger.warning(
+                                f"timeout waiting for response to cmd=0x{command:02x}"
+                            )
+                            continue
+                        logger.info(
+                            f"sending: cmd=0x{command:02x} data={response.hex(':')}"
+                        )
+                        await send_command(writer, command, response)
+
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(__handle_push())
+                    tg.create_task(__handle_server())
+            finally:
+                alarm.on_push.remove(cb)
 
         async def __downstream_alarm() -> None:
             logger = _logger.getChild("downstream_alarm")
@@ -134,17 +132,20 @@ async def handle(
                 raise Exception("Invalid data")
             logger.info(f"Version: {version}")
 
-            receive = Listenable[tuple[int, bytes]]()
-            OPEN_CONNECTIONS[mac] = (writer, receive)
+            alarm = AlarmConnection(writer)
+            OPEN_CONNECTIONS[mac] = alarm
             try:
-                tg.create_task(__upstream(receive, mac, version))
+                tg.create_task(__upstream(alarm, mac, version))
 
                 while True:
                     command, data = await read_command(reader)
                     logger.info(f"received: {command_to_str(command, data)}")
-                    receive.emit((command, data))
 
-                    if command == TIME_COMMAND:
+                    if command == PUSH_COMMAND:
+                        for cb in alarm.on_push:
+                            cb((command, data))
+                        await send_command(writer, OK)
+                    elif command == TIME_COMMAND:
                         tz = -data[0]
                         now = datetime.now(tz=timezone(timedelta(hours=tz)))
                         logger.info(f"sending TIME: {now}")
@@ -155,6 +156,10 @@ async def handle(
                                 f"{now.year - 2000:02} {now.month:02} {now.day:02} 04 {now.hour:02} {now.minute:02} {now.second:02}"
                             ),
                         )
+                    elif command == PING_COMMAND:
+                        await send_command(writer, OK)
+                    elif alarm.resolve(command, data):
+                        await send_command(writer, OK)
                     else:
                         logger.info("sending OK")
                         await send_command(writer, OK)
@@ -182,7 +187,7 @@ async def handle(
                     raise Exception("Invalid data")
 
         async def __upstream(
-            receive: Listenable[tuple[int, bytes]],
+            alarm: AlarmConnection,
             mac: bytes,
             version: bytes,
         ) -> None:
@@ -213,15 +218,18 @@ async def handle(
                             logger.info("sending PING")
                             await send_command(u_writer, PING_COMMAND)
 
+                    push_queue = asyncio.Queue[tuple[int, bytes]]()
+                    cb = push_queue.put_nowait
+                    alarm.on_push.append(cb)
+
                     async def __handle_push() -> None:
-                        with receive.listener() as listener:
+                        try:
                             while True:
-                                command, data = await listener.get()
-                                if command == PUSH_COMMAND:
-                                    logger.info(
-                                        f"sending {command_to_str(command, data)}"
-                                    )
-                                    await send_command(u_writer, PUSH_COMMAND, data)
+                                command, data = await push_queue.get()
+                                logger.info(f"sending {command_to_str(command, data)}")
+                                await send_command(u_writer, PUSH_COMMAND, data)
+                        finally:
+                            alarm.on_push.remove(cb)
 
                     async def __handle_server() -> None:
                         while True:
@@ -238,17 +246,10 @@ async def handle(
                                 response = version
                             else:
                                 logger.info(
-                                    f"sending to client cmd=0x{command:02x} data={data.hex(':')}"
+                                    f"sending to alarm cmd=0x{command:02x} data={data.hex(':')}"
                                 )
                                 try:
-                                    with receive.listener() as listener:
-                                        await send_command(writer, command, data)
-                                        async with asyncio.timeout(5):
-                                            while True:
-                                                command_, data = await listener.get()
-                                                if command_ == command:
-                                                    response = data
-                                                    break
+                                    _, response = await alarm.request(command, data)
                                 except TimeoutError:
                                     logger.warning(
                                         f"timeout waiting for response to cmd=0x{command:02x}"
