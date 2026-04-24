@@ -61,15 +61,48 @@ Sent by clients with authentication:
 
 ### Inner commands
 
-| Inner cmd | Name | Data |
-|-----------|------|------|
-| 0x41 | ARM | `0x41` |
-| 0x42 | BYPASS | zone bitmask (3 bytes, little-endian) |
-| 0x44 | DISARM | (empty) |
-| 0x45 | PANIC | `0x01` (audible) or `0x00` (silent) |
-| 0x50 | PGM | `0x4C 0x31` (on) or `0x44 0x31` (off) |
-| 0x5A | STATUS | (empty) |
-| 0x00 | MESSAGES | sync/event data (see below) |
+The inner command byte is 0x41 (ARM) or 0x44 (DISARM). For the AN-24 Net, arm/disarm
+always target partition A explicitly. A stay modifier (0x50) changes full arm to stay arm.
+
+| Inner bytes | Name | Description |
+|-------------|------|-------------|
+| `0x41 0x41` | ARM | Arm partition A (full arm — sets both A and B flags) |
+| `0x41 0x41 0x50` | ARM STAY | Arm partition A with stay (sets only B flag) |
+| `0x41 0x42` | ARM B | Arm partition B (alternative stay arm, used by G2) |
+| `0x42` + zone mask | BYPASS | Zone bitmask (3 bytes, little-endian) |
+| `0x44` | DISARM | Disarm central (AN-24 Net G2, used by this integration) |
+| `0x44 0x41` | DISARM A | Disarm partition A (base AN-24 Net in APK) |
+| `0x45 0x01` | PANIC | Audible panic |
+| `0x45 0x00` | PANIC SILENT | Silent panic |
+| `0x50 0x4C 0x31` | PGM ON | Turn PGM 1 on |
+| `0x50 0x44 0x31` | PGM OFF | Turn PGM 1 off |
+| `0x5A` | STATUS | Request status (54 bytes response) |
+| `0x00` + payload | MESSAGES | Sync/event data (see below) |
+
+#### Arm state semantics
+
+The panel uses partition flags to encode arm mode (not actual partition separation):
+
+| Partition A | Partition B | State |
+|-------------|-------------|-------|
+| 1 | 1 | Fully armed (armed away) |
+| 0 | 1 | Stay armed (armed home) |
+| 0 | 0 | Disarmed |
+
+- **ARM** (`0x41 0x41`): sets both partition A and B → fully armed
+- **ARM STAY** (`0x41 0x41 0x50`): sets only partition B → stay armed
+
+#### Protocol constants (from APK decompilation)
+
+```
+CMD_ATIVAR      = 0x41  (ARM)
+CMD_ATIVAR_STAY = 0x50  (stay modifier, appended after partition byte)
+CMD_DESATIVAR   = 0x44  (DISARM)
+CMD_PARTICAO_A  = 0x41
+CMD_PARTICAO_B  = 0x42
+CMD_PARTICAO_C  = 0x43
+CMD_PARTICAO_D  = 0x44
+```
 
 ### Error responses
 
@@ -87,7 +120,7 @@ Sent by clients with authentication:
 | 12-14 | 3 | Annulled zones |
 | 19 | 1 | Version |
 | 20 | 1 | Partitioned panel (bit 0) |
-| 21 | 1 | Partition A armed (bit 0), Partition B armed (bit 1) |
+| 21 | 1 | Partition A armed (bit 0), Partition B armed (bit 1) — see arm state semantics above |
 | 28 | 1 | No energy (bit 0) |
 | 30 | 1 | Battery: envoltório (bit 0), 1° nível (1), 2° nível (2), 3° nível (3), envoltório pisc (4) |
 | 37 | 1 | Siren triggered (bit 2), PGM (bit 6) |
