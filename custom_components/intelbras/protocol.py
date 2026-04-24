@@ -15,6 +15,29 @@ ISEC = 0xE7
 XOR_COMMAND = 0xFB
 CONNECTION_COMMAND = 0xE5
 
+# MY_HOME framing
+DELIMITER = 0x21
+
+# Sync response marker
+SYNC_MARKER = 0xE0
+
+# Connection data constants
+ETHERNET = 0x45
+TYPE_ANDROID = 0x06
+
+# Connection response codes
+CONN_SUCCESS = 0xE6
+CONN_NOT_FOUND = 0xE4
+CONN_BUSY = 0xE8
+
+# MY_HOME error responses
+ERR_WRONG_PASSWORD = 0xE1
+ERR_OPEN_ZONE = 0xE4
+
+
+def arm(*, stay: bool) -> bytes:
+    return b"\x41\x50" if stay else b"\x41"
+
 
 def panic(*, audible: bool) -> bytes:
     return b"\x01" if audible else b"\x00"
@@ -25,7 +48,7 @@ def pgm(*, on: bool) -> bytes:
 
 
 class MyHomeCommands:
-    ARM = (0x41, lambda: b"\x41")
+    ARM = (0x41, arm)
     BYPASS = (0x42, bytes)
     DISARM = (0x44, bytes)
     PANIC = (0x45, panic)
@@ -37,11 +60,15 @@ class MyHomeCommands:
 def my_home_to_str(data: bytes) -> str:
     if data[0] == OK:
         return "OK"
-    if data[0] == 0x21 and data[-1] == 0x21:
+    if data[0] == DELIMITER and data[-1] == DELIMITER:
         password = data[1:5].decode("ascii")
         command = data[5]
         data = data[6:-1]
-        if command == MyHomeCommands.ARM[0]:
+        if command == MyHomeCommands.ARM[0] and data == MyHomeCommands.ARM[1](
+            stay=True
+        ):
+            command = "ARM_STAY"
+        elif command == MyHomeCommands.ARM[0]:
             command = "ARM"
         elif command == MyHomeCommands.DISARM[0]:
             command = "DISARM"
@@ -127,14 +154,14 @@ def connection_data(mac: bytes) -> bytes:
     token = b""
     return bytes(
         [
-            0x06,
+            TYPE_ANDROID,
             *uuid.zfill(8),
             *mac,
             checksum(token),
-            0x45,
+            ETHERNET,
             *[0x00 for _ in range(4)],
             0x03,
-            0x00,  # LANGUAGE,
+            0x00,  # LANGUAGE
             *token,
         ]
     )
@@ -249,7 +276,7 @@ def parse_char(char: int) -> str:
 
 
 def parse_sync(data: bytes) -> tuple[int, list[str]]:
-    if data[1] != MyHomeCommands.MESSAGES[0] or data[7] != 0xE0:
+    if data[1] != MyHomeCommands.MESSAGES[0] or data[7] != SYNC_MARKER:
         raise ValueError("Invalid sync data")
     type = data[6]
     result: list[str] = []
@@ -270,7 +297,7 @@ def parse_sync(data: bytes) -> tuple[int, list[str]]:
 
 
 def my_home_data(password: str, command: int, data: bytes = b"") -> bytes:
-    return bytes([0x21, *map(ord, password), command, *data, 0x21])
+    return bytes([DELIMITER, *map(ord, password), command, *data, DELIMITER])
 
 
 def null_zone_data(zones: list[int]) -> bytes:
@@ -401,7 +428,7 @@ def sync_data(type: int, indexes: bytes = b"\x00") -> bytes:
             0x00,
             len(indexes) + 2,
             type,
-            0xE0,
+            SYNC_MARKER,
             *indexes,
         ]
     )
@@ -511,11 +538,11 @@ class ClientAMT:
                     await send_command(writer, CONNECTION_COMMAND, data, key)
 
                     [result] = await reader.readexactly(1)
-                    if result in (228, 253):
+                    if result in (CONN_NOT_FOUND, 0xFD):
                         raise Exception("Central não conectada")
-                    if result == 232:
+                    if result == CONN_BUSY:
                         raise Exception("Outro dispositivo conectado")
-                    if result != 230:
+                    if result != CONN_SUCCESS:
                         raise Exception("Erro")
 
                     _ = await reader.readexactly(1)
@@ -556,11 +583,13 @@ class ClientAMT:
     async def arm(self, password: str, *, stay: bool = False) -> None:
         data = await self._request(
             MY_HOME,
-            my_home_data(password, MyHomeCommands.ARM[0], MyHomeCommands.ARM[1]()),
+            my_home_data(
+                password, MyHomeCommands.ARM[0], MyHomeCommands.ARM[1](stay=stay)
+            ),
         )
-        if data == b"\xe1":
+        if data == bytes([ERR_WRONG_PASSWORD]):
             raise WrongPasswordError
-        if data == b"\xe4":
+        if data == bytes([ERR_OPEN_ZONE]):
             raise OpenZoneError
 
     async def disarm(self, password: str) -> None:
@@ -570,7 +599,7 @@ class ClientAMT:
                 password, MyHomeCommands.DISARM[0], MyHomeCommands.DISARM[1]()
             ),
         )
-        if data == b"\xe1":
+        if data == bytes([ERR_WRONG_PASSWORD]):
             raise WrongPasswordError
 
     async def panic(self, password: str, *, silent: bool = False) -> None:
@@ -582,7 +611,7 @@ class ClientAMT:
                 MyHomeCommands.PANIC[1](audible=not silent),
             ),
         )
-        if data == b"\xe1":
+        if data == bytes([ERR_WRONG_PASSWORD]):
             raise WrongPasswordError
 
     async def pgm(self, *, on: bool = True) -> None:
