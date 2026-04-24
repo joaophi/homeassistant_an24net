@@ -32,6 +32,8 @@ def checksum(data: bytes) -> int:
 3. Client sends `CONNECTION_COMMAND (0xE5)` with MAC address in connection data (encrypted with key if non-zero)
 4. Server responds: `0xE6 0x0E` (success), `0xE4` (alarm not found), `0xE8` (other device connected)
 
+When connected through the proxy, the success response uses `0x0F` instead of `0x0E` as the second byte (`CONN_PROXY`), allowing the client to detect a proxy connection.
+
 ## Command Codes
 
 | Code | Name | Description |
@@ -47,6 +49,7 @@ def checksum(data: bytes) -> int:
 | 0xE7 | ISEC | ISEC protocol |
 | 0xFB | XOR | Encryption key negotiation |
 | 0xE5 | CONNECTION | Client connection with MAC |
+| 0xF2 | PROXY | Proxy control command (custom, see below) |
 
 ## MY_HOME Command (0xE9)
 
@@ -129,6 +132,14 @@ CMD_PARTICAO_D  = 0x44
 | 50-52 | 3 | Stay zones |
 
 Each zone bitmask: bit N = zone N+1 (0-indexed, 24 zones max).
+
+When connected through the proxy, the status response is extended to 55 bytes. The proxy appends one byte at offset 54:
+
+| Offset | Size | Description |
+|--------|------|-------------|
+| 54 | 1 | Upstream push enabled (0x01 = enabled, 0x00 = disabled) |
+
+When connected directly to the cloud (54 bytes), this field is absent.
 
 ## MESSAGES Command (inner command 0x00)
 
@@ -243,6 +254,24 @@ def bcd(b: int) -> int:
 | 301 | Falha na rede elétrica | Rede elétrica presente |
 | 384 | Bateria baixa (RF sensor) | Bateria recuperada |
 | 401 | Desarme / Disarm | Arme / Arm |
+
+## Proxy Command (0xF2)
+
+Custom command handled by the proxy server, not forwarded to the alarm panel. Uses a subcommand structure:
+
+```
+[subcommand] [params...]
+```
+
+The proxy responds with `OK (0xFE)`.
+
+### Subcommands
+
+| Subcommand | Name | Params | Description |
+|------------|------|--------|-------------|
+| 0x01 | UPSTREAM_PUSH | `0x01` enable, `0x00` disable | Control upstream push event forwarding to Intelbras cloud |
+
+When upstream push is disabled, the proxy suppresses PUSH events (0xB4) from being forwarded to `amt.intelbras.com.br`, preventing phone notifications from the Intelbras app. The upstream connection itself remains active.
 
 ## XOR Encryption
 
