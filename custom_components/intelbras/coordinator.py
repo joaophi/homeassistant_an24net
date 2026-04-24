@@ -159,7 +159,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             translation_placeholders={"zone": self._zone_name(zone)},
         )
 
-    def _scan_unresolved_issues(self) -> None:
+    def _scan_unresolved_issues(self, enabled_zones: set[int]) -> None:
         """Scan the ring buffer for unresolved RF failures, battery, and system issues."""
         rf_status: dict[int, str] = {}
         battery_status: dict[int, str] = {}
@@ -187,11 +187,11 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
                 battery_status[zone] = event_type
 
         for zone, event_type in rf_status.items():
-            if event_type == "rf_supervision_failure":
+            if event_type == "rf_supervision_failure" and zone in enabled_zones:
                 self._create_zone_issue("rf_supervision_failure", zone)
 
         for zone, event_type in battery_status.items():
-            if event_type == "low_battery":
+            if event_type == "low_battery" and zone in enabled_zones:
                 self._create_zone_issue("low_battery", zone)
 
         if system_battery == "system_battery_low":
@@ -222,7 +222,11 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
 
         try:
             self.__events = await self.client.fetch_events()
-            self._scan_unresolved_issues()
+            status = await self.client.status()
+            enabled_zones = {
+                i + 1 for i, z in enumerate(status["zones"]) if z["enabled"]
+            }
+            self._scan_unresolved_issues(enabled_zones)
         except Exception:
             _LOGGER.warning("Failed to fetch event log")
 
@@ -235,10 +239,8 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             raise UpdateFailed("Erro ao atualizar os dados") from ex
 
         for i, zone in enumerate(data["zones"]):
-            if not zone["enabled"]:
-                continue
             zone_num = i + 1
-            if zone["low_battery"]:
+            if zone["enabled"] and zone["low_battery"]:
                 self._create_zone_issue("low_battery", zone_num)
             else:
                 async_delete_issue(self.hass, DOMAIN, f"low_battery_{zone_num}")
