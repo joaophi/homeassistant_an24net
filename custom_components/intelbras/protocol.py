@@ -1,6 +1,9 @@
 import asyncio
 import contextlib
 from collections.abc import Callable
+from enum import Enum
+from functools import reduce
+from operator import xor
 from typing import TypedDict
 
 START_COMMAND = 0x94
@@ -17,6 +20,15 @@ CONNECTION_COMMAND = 0xE5
 
 # MY_HOME framing
 DELIMITER = 0x21
+
+# Sync type codes
+SYNC_COMMAND = 0x00
+SYNC_EVENT = 0x30
+SYNC_NAME = 0x31
+SYNC_USER = 0x32
+SYNC_ZONE = 0x33
+SYNC_FETCH = 0x39
+SYNC_EMPTY = 0xF0
 
 # Sync response marker
 SYNC_MARKER = 0xE0
@@ -47,14 +59,18 @@ def pgm(*, on: bool) -> bytes:
     return b"\x4c\x31" if on else b"\x44\x31"
 
 
-class MyHomeCommands:
+class MyHomeCommands(Enum):
     ARM = (0x41, arm)
-    BYPASS = (0x42, bytes)
-    DISARM = (0x44, bytes)
+    BYPASS = 0x42
+    DISARM = 0x44
     PANIC = (0x45, panic)
-    STATUS = (0x5A, bytes)
-    MESSAGES = (0xF1, bytes)
+    STATUS = 0x5A
+    MESSAGES = 0xF1
     PGM = (0x50, pgm)
+
+    def __init__(self, code: int, factory: Callable[..., bytes] = bytes) -> None:
+        self.code = code
+        self.factory = factory
 
 
 def _compact_ranges(nums: list[int]) -> str:
@@ -89,13 +105,14 @@ def _sync_type_name(t: int) -> str:
 
 def status_to_str(s: "Status") -> str:
     parts: list[str] = []
-    if s["partitionedPanel"]:
-        parts.append(f"A={'armed' if s['partitionAArmed'] else 'disarmed'}")
-        parts.append(f"B={'armed' if s['partitionBArmed'] else 'disarmed'}")
-    else:
-        parts.append("armed" if s["partitionAArmed"] else "disarmed")
     if s["sirenTriggered"]:
-        parts.append("SIREN")
+        parts.append("triggered")
+    elif s["partitionAArmed"]:
+        parts.append("armed_away")
+    elif s["partitionBArmed"]:
+        parts.append("armed_stay")
+    else:
+        parts.append("disarmed")
     open_z = [i + 1 for i, z in enumerate(s["zones"]) if z["enabled"] and z["open"]]
     violated_z = [
         i + 1 for i, z in enumerate(s["zones"]) if z["enabled"] and z["violated"]
@@ -129,42 +146,46 @@ def my_home_to_str(data: bytes) -> str:
     if data[0] == DELIMITER and data[-1] == DELIMITER:
         command = data[5]
         data = data[6:-1]
-        if command == MyHomeCommands.ARM[0] and data == MyHomeCommands.ARM[1](
+        if command == MyHomeCommands.ARM.code and data == MyHomeCommands.ARM.factory(
             stay=True
         ):
             cmd_str = "ARM_STAY"
-        elif command == MyHomeCommands.ARM[0]:
+        elif command == MyHomeCommands.ARM.code:
             cmd_str = "ARM"
-        elif command == MyHomeCommands.DISARM[0]:
+        elif command == MyHomeCommands.DISARM.code:
             cmd_str = "DISARM"
-        elif command == MyHomeCommands.PANIC[0] and data == MyHomeCommands.PANIC[1](
-            audible=True
+        elif (
+            command == MyHomeCommands.PANIC.code
+            and data == MyHomeCommands.PANIC.factory(audible=True)
         ):
             cmd_str = "PANIC_AUDIBLE"
-        elif command == MyHomeCommands.PANIC[0] and data == MyHomeCommands.PANIC[1](
-            audible=False
+        elif (
+            command == MyHomeCommands.PANIC.code
+            and data == MyHomeCommands.PANIC.factory(audible=False)
         ):
             cmd_str = "PANIC_SILENT"
-        elif command == MyHomeCommands.STATUS[0]:
+        elif command == MyHomeCommands.STATUS.code:
             cmd_str = "STATUS"
-        elif command == MyHomeCommands.PGM[0] and data == MyHomeCommands.PGM[1](
+        elif command == MyHomeCommands.PGM.code and data == MyHomeCommands.PGM.factory(
             on=True
         ):
             cmd_str = "PGM_ON"
-        elif command == MyHomeCommands.PGM[0] and data == MyHomeCommands.PGM[1](
+        elif command == MyHomeCommands.PGM.code and data == MyHomeCommands.PGM.factory(
             on=False
         ):
             cmd_str = "PGM_OFF"
-        elif command == MyHomeCommands.PGM[0]:
+        elif command == MyHomeCommands.PGM.code:
             cmd_str = f"PGM: {data.hex(':')}"
-        elif command == MyHomeCommands.BYPASS[0]:
+        elif command == MyHomeCommands.BYPASS.code:
             bitmask = int.from_bytes(data[:3], byteorder="little")
             zones = [i + 1 for i in range(24) if bitmask & (1 << i)]
             cmd_str = f"BYPASS {_compact_ranges(zones)}"
         elif (
-            command == 0x00 and len(data) > 5 and data[2] == MyHomeCommands.MESSAGES[0]
+            command == SYNC_COMMAND
+            and len(data) > 5
+            and data[2] == MyHomeCommands.MESSAGES.code
         ):
-            if data[5] == 0x39 and len(data) > 7:
+            if data[5] == SYNC_FETCH and len(data) > 7:
                 indices = [data[i + 1] for i in range(7, len(data) - 1, 2)]
                 cmd_str = f"MESSAGES {_compact_ranges(indices)}"
             else:
@@ -178,12 +199,12 @@ def my_home_to_str(data: bytes) -> str:
     except Exception:
         pass
 
-    if len(data) > 6 and data[1] == MyHomeCommands.MESSAGES[0]:
-        if data[6] == 0xF0:
+    if len(data) > 6 and data[1] == MyHomeCommands.MESSAGES.code:
+        if data[6] == SYNC_EMPTY:
             return "MESSAGES: empty"
-        if data[6] == 0x30 and len(data) > 9:
+        if data[6] == SYNC_EVENT and len(data) > 9:
             return f"MESSAGES: cursor pointer={data[9]}"
-        if data[6] == 0x39 and len(data) > 8:
+        if data[6] == SYNC_FETCH and len(data) > 8:
             n = len(data[8:]) // 15
             return f"MESSAGES: {n} events"
 
@@ -265,7 +286,7 @@ def connection_data(mac: bytes) -> bytes:
             *mac,
             checksum(token),
             ETHERNET,
-            *[0x00 for _ in range(4)],
+            *b"\x00" * 4,
             0x03,
             0x00,  # LANGUAGE
             *token,
@@ -382,7 +403,7 @@ def parse_char(char: int) -> str:
 
 
 def parse_sync(data: bytes) -> tuple[int, list[str]]:
-    if data[1] != MyHomeCommands.MESSAGES[0] or data[7] != SYNC_MARKER:
+    if data[1] != MyHomeCommands.MESSAGES.code or data[7] != SYNC_MARKER:
         raise ValueError("Invalid sync data")
     type = data[6]
     result: list[str] = []
@@ -412,12 +433,6 @@ def null_zone_data(zones: list[int]) -> bytes:
         x = i - 1
         data[x // 8] |= 1 << (x % 8)
     return bytes(data)
-
-
-SYNC_EVENT = 0x30
-SYNC_NAME = 0x31
-SYNC_USER = 0x32
-SYNC_ZONE = 0x33
 
 
 def bcd(b: int) -> int:
@@ -532,7 +547,7 @@ def sync_data(type: int, indexes: bytes = b"\x00") -> bytes:
         [
             0x00,
             0x00,
-            MyHomeCommands.MESSAGES[0],  # COMANDO_MENSAGENS
+            MyHomeCommands.MESSAGES.code,  # COMANDO_MENSAGENS
             0x00,
             len(indexes) + 2,
             type,
@@ -544,10 +559,7 @@ def sync_data(type: int, indexes: bytes = b"\x00") -> bytes:
 
 
 def checksum(data: bytes) -> int:
-    i = 0
-    for x in data:
-        i ^= x
-    return i ^ 255
+    return reduce(xor, data, 0) ^ 0xFF
 
 
 class ChecksumError(Exception):
@@ -568,7 +580,7 @@ async def read_command(reader: asyncio.StreamReader) -> tuple[int, bytes]:
     data = await reader.readexactly(length)
     [checksum_] = await reader.readexactly(1)
     if checksum_ != checksum(bytes([length, *data])):
-        if data[0] == MY_HOME and data[1] == 0x00:
+        if data[0] == MY_HOME and data[1] == SYNC_COMMAND:
             return data[0], bytes([*data[1:], checksum_])
         raise ChecksumError(bytes([length, *data]), checksum_)
 
@@ -586,7 +598,7 @@ async def send_command(
     else:
         data = create_command(command, data)
 
-    if key:
+    if key is not None:
         data = encrypt(data, key)
 
     writer.write(data)
@@ -607,7 +619,6 @@ class ClientAMT:
         self.pin = pin
         self._send = asyncio.Queue[tuple[int, bytes, asyncio.Future[None]]]()
         self._receive: list[asyncio.Queue[tuple[int, bytes]]] = []
-        self._status = None
         self._request_lock = asyncio.Lock()
         # Called when PUSH_COMMAND (0xB4) is received from the panel.
         # Set by the coordinator to parse Contact ID events and dispatch them.
@@ -692,7 +703,7 @@ class ClientAMT:
         data = await self._request(
             MY_HOME,
             my_home_data(
-                password, MyHomeCommands.ARM[0], MyHomeCommands.ARM[1](stay=stay)
+                password, MyHomeCommands.ARM.code, MyHomeCommands.ARM.factory(stay=stay)
             ),
         )
         if data == bytes([ERR_WRONG_PASSWORD]):
@@ -704,7 +715,7 @@ class ClientAMT:
         data = await self._request(
             MY_HOME,
             my_home_data(
-                password, MyHomeCommands.DISARM[0], MyHomeCommands.DISARM[1]()
+                password, MyHomeCommands.DISARM.code, MyHomeCommands.DISARM.factory()
             ),
         )
         if data == bytes([ERR_WRONG_PASSWORD]):
@@ -715,8 +726,8 @@ class ClientAMT:
             MY_HOME,
             my_home_data(
                 password,
-                MyHomeCommands.PANIC[0],
-                MyHomeCommands.PANIC[1](audible=not silent),
+                MyHomeCommands.PANIC.code,
+                MyHomeCommands.PANIC.factory(audible=not silent),
             ),
         )
         if data == bytes([ERR_WRONG_PASSWORD]):
@@ -725,18 +736,20 @@ class ClientAMT:
     async def pgm(self, *, on: bool = True) -> None:
         await self._request(
             MY_HOME,
-            my_home_data(self.pin, MyHomeCommands.PGM[0], MyHomeCommands.PGM[1](on=on)),
+            my_home_data(
+                self.pin, MyHomeCommands.PGM.code, MyHomeCommands.PGM.factory(on=on)
+            ),
         )
 
     async def bypass(self, zones: list[int]) -> None:
         await self._request(
             MY_HOME,
-            my_home_data(self.pin, MyHomeCommands.BYPASS[0], null_zone_data(zones)),
+            my_home_data(self.pin, MyHomeCommands.BYPASS.code, null_zone_data(zones)),
         )
 
     async def sync(self, type: int, indexes: bytes = bytes([0x00])) -> list[str]:
         data = await self._request(
-            MY_HOME, my_home_data(self.pin, 0x00, sync_data(type, indexes))
+            MY_HOME, my_home_data(self.pin, SYNC_COMMAND, sync_data(type, indexes))
         )
         return parse_sync(data)[1]
 
@@ -744,16 +757,16 @@ class ClientAMT:
         data = await self._request(
             MY_HOME,
             my_home_data(
-                self.pin, MyHomeCommands.STATUS[0], MyHomeCommands.STATUS[1]()
+                self.pin, MyHomeCommands.STATUS.code, MyHomeCommands.STATUS.factory()
             ),
         )
         return parse_status(data)
 
     async def get_event_pointer(self) -> int:
         """Get event log write pointer (0–127) in the 128-entry ring buffer."""
-        payload = bytes([0x00, 0x00, 0xF1, 0x00, 0x03, 0x30, 0x03, 0x00])
+        payload = bytes([0x00, 0x00, MyHomeCommands.MESSAGES.code, 0x00, 0x03, SYNC_EVENT, 0x03, 0x00])
         payload = bytes([*payload, checksum(payload)])
-        data = await self._request(MY_HOME, my_home_data(self.pin, 0x00, payload))
+        data = await self._request(MY_HOME, my_home_data(self.pin, SYNC_COMMAND, payload))
         return data[9]
 
     async def fetch_events(self) -> list[EventRecord]:
@@ -776,19 +789,19 @@ class ClientAMT:
                 [
                     0x00,
                     0x00,
-                    0xF1,
+                    MyHomeCommands.MESSAGES.code,
                     0x00,
                     len(index_bytes) + 2,
-                    0x39,
+                    SYNC_FETCH,
                     0x00,
                     *index_bytes,
                 ]
             )
             payload = bytes([*payload, checksum(payload)])
 
-            data = await self._request(MY_HOME, my_home_data(self.pin, 0x00, payload))
+            data = await self._request(MY_HOME, my_home_data(self.pin, SYNC_COMMAND, payload))
 
-            if len(data) > 6 and data[6] == 0xF0:
+            if len(data) > 6 and data[6] == SYNC_EMPTY:
                 continue
 
             event_data = data[8:]
