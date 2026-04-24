@@ -60,6 +60,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             "zones": [f"Zone {index + 1:02}" for index in range(24)],
         }
         self.__events: list[EventRecord] = []
+        self.__last_failed = False
         self.client.on_push = self._handle_push
 
     @callback
@@ -234,9 +235,23 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         try:
             data = await self.client.status()
         except WrongPasswordError as ex:
+            self.__last_failed = True
             raise ConfigEntryAuthFailed from ex
         except Exception as ex:
+            self.__last_failed = True
             raise UpdateFailed("Erro ao atualizar os dados") from ex
+
+        if self.__last_failed:
+            self.__last_failed = False
+            _LOGGER.info("Connection recovered, re-fetching events")
+            try:
+                self.__events = await self.client.fetch_events()
+                enabled_zones = {
+                    i + 1 for i, z in enumerate(data["zones"]) if z["enabled"]
+                }
+                self._scan_unresolved_issues(enabled_zones)
+            except Exception:
+                _LOGGER.warning("Failed to re-fetch event log after reconnect")
 
         for i, zone in enumerate(data["zones"]):
             zone_num = i + 1
