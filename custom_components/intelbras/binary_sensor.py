@@ -35,14 +35,20 @@ async def async_setup_entry(
         enabled_zones.update(new_devices)
         for i in new_devices:
             async_add_entities(
-                AMTSensor(
-                    config_entry.runtime_data, i, prop, device_class, category
-                )
+                AMTSensor(config_entry.runtime_data, i, prop, device_class, category)
                 for prop, device_class, category in [
                     ("open", BinarySensorDeviceClass.OPENING, None),
-                    ("violated", BinarySensorDeviceClass.PROBLEM, EntityCategory.DIAGNOSTIC),
+                    (
+                        "violated",
+                        BinarySensorDeviceClass.PROBLEM,
+                        EntityCategory.DIAGNOSTIC,
+                    ),
                     ("stay", None, EntityCategory.DIAGNOSTIC),
-                    ("low_battery", BinarySensorDeviceClass.BATTERY, EntityCategory.DIAGNOSTIC),
+                    (
+                        "low_battery",
+                        BinarySensorDeviceClass.BATTERY,
+                        EntityCategory.DIAGNOSTIC,
+                    ),
                 ]
             )
 
