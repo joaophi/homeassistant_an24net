@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from datetime import timedelta
-from time import monotonic
 from itertools import batched
+from time import monotonic
 from typing import TypedDict
 
 from homeassistant.core import HomeAssistant, callback

@@ -1,28 +1,28 @@
-from asyncio import StreamReader, StreamWriter, Task, TaskGroup
 import asyncio
-from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
-from itertools import count
 import logging
 import signal
 import sys
+from asyncio import StreamReader, StreamWriter, Task, TaskGroup
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
+from itertools import count
 
 from an24net.protocol import (
-    START_COMMAND,
-    MAC_COMMAND,
-    VERSION_COMMAND,
-    TIME_COMMAND,
-    PING_COMMAND,
-    PUSH_COMMAND,
-    OK,
-    MY_HOME,
-    XOR_COMMAND,
+    CONN_NOT_FOUND,
+    CONN_PROXY,
+    CONN_SUCCESS,
     CONNECTION_COMMAND,
+    MAC_COMMAND,
+    MY_HOME,
+    OK,
+    PING_COMMAND,
     PROXY_COMMAND,
     PROXY_UPSTREAM_PUSH,
-    CONN_NOT_FOUND,
-    CONN_SUCCESS,
-    CONN_PROXY,
+    PUSH_COMMAND,
+    START_COMMAND,
+    TIME_COMMAND,
+    VERSION_COMMAND,
+    XOR_COMMAND,
     MyHomeCommands,
     command_to_str,
     frame_hex,
@@ -126,7 +126,9 @@ async def handle(
                             )
                             continue
                         if command == MY_HOME and data[5] == MyHomeCommands.STATUS.code:
-                            response = bytes([*response, 0x01 if alarm.upstream_enabled else 0x00])
+                            response = bytes(
+                                [*response, 0x01 if alarm.upstream_enabled else 0x00]
+                            )
                         logger.info(
                             f"↑ {command_to_str(command, response)} | {frame_hex(command, response)}"
                         )
@@ -256,7 +258,9 @@ async def handle(
                                 if alarm.upstream_enabled:
                                     await send_command(u_writer, PUSH_COMMAND, data)
                                 else:
-                                    logger.info(f"upstream push suppressed | {frame_hex(PUSH_COMMAND, data)}")
+                                    logger.info(
+                                        f"upstream push suppressed | {frame_hex(PUSH_COMMAND, data)}"
+                                    )
                         finally:
                             alarm.on_push.remove(cb)
 
@@ -274,7 +278,9 @@ async def handle(
                                 )
                                 await send_command(u_writer, MAC_COMMAND, mac)
                             elif command == VERSION_COMMAND:
-                                logger.info(f"← VERSION | {frame_hex(VERSION_COMMAND, b'')}")
+                                logger.info(
+                                    f"← VERSION | {frame_hex(VERSION_COMMAND, b'')}"
+                                )
                                 logger.info(
                                     f"→ VERSION: {version.decode('ascii', errors='replace')} | {frame_hex(VERSION_COMMAND, version)}"
                                 )

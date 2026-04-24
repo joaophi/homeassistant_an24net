@@ -774,7 +774,11 @@ class ClientAMT:
         """Send upstream push enable/disable command to the proxy server."""
         future = asyncio.Future[None]()
         self._send.put_nowait(
-            (PROXY_COMMAND, bytes([PROXY_UPSTREAM_PUSH, 0x01 if enabled else 0x00]), future)
+            (
+                PROXY_COMMAND,
+                bytes([PROXY_UPSTREAM_PUSH, 0x01 if enabled else 0x00]),
+                future,
+            )
         )
         await future
 
@@ -792,9 +796,22 @@ class ClientAMT:
 
     async def get_event_pointer(self) -> int:
         """Get event log write pointer (0–127) in the 128-entry ring buffer."""
-        payload = bytes([0x00, 0x00, MyHomeCommands.MESSAGES.code, 0x00, 0x03, SYNC_EVENT, 0x03, 0x00])
+        payload = bytes(
+            [
+                0x00,
+                0x00,
+                MyHomeCommands.MESSAGES.code,
+                0x00,
+                0x03,
+                SYNC_EVENT,
+                0x03,
+                0x00,
+            ]
+        )
         payload = bytes([*payload, checksum(payload)])
-        data = await self._request(MY_HOME, my_home_data(self.pin, SYNC_COMMAND, payload))
+        data = await self._request(
+            MY_HOME, my_home_data(self.pin, SYNC_COMMAND, payload)
+        )
         return data[9]
 
     async def fetch_events(self) -> list[EventRecord]:
@@ -827,7 +844,9 @@ class ClientAMT:
             )
             payload = bytes([*payload, checksum(payload)])
 
-            data = await self._request(MY_HOME, my_home_data(self.pin, SYNC_COMMAND, payload))
+            data = await self._request(
+                MY_HOME, my_home_data(self.pin, SYNC_COMMAND, payload)
+            )
 
             if len(data) > 6 and data[6] == SYNC_EMPTY:
                 continue
