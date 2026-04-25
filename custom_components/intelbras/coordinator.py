@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from datetime import timedelta
 from itertools import batched
 from time import monotonic
@@ -63,6 +62,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         self.__events: list[EventRecord] = []
         self.__last_failed = False
         self.__messages_last_sync = 0.0
+        self.__low_battery_zones: set[int] = set()
         self.client.on_push = self._handle_push
 
     @callback
@@ -78,8 +78,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
     @callback
     def _apply_push_to_status(self, event: EventRecord) -> None:
         """Update coordinator status from a push event."""
-        data: Data = deepcopy(self.data)
-        status = data["status"]
+        status = self.data["status"]
         event_type = CID_EVENT_TYPES.get((event["qualifier"], event["code"]))
         zone = event["zone"]
 
@@ -109,7 +108,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         else:
             return
 
-        self.async_set_updated_data(data)
+        self.async_set_updated_data(self.data)
 
     def _zone_name(self, zone: int) -> str:
         """Get the display name for a zone number."""
@@ -265,12 +264,16 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         elif monotonic() - self.__messages_last_sync > 1800:
             await self._sync_messages()
 
-        for i, zone in enumerate(data["zones"]):
-            zone_num = i + 1
-            if zone["enabled"] and zone["low_battery"]:
-                self._create_zone_issue("low_battery", zone_num)
-            else:
-                async_delete_issue(self.hass, DOMAIN, f"low_battery_{zone_num}")
+        current_low_battery = {
+            i + 1
+            for i, zone in enumerate(data["zones"])
+            if zone["enabled"] and zone["low_battery"]
+        }
+        for zone_num in current_low_battery - self.__low_battery_zones:
+            self._create_zone_issue("low_battery", zone_num)
+        for zone_num in self.__low_battery_zones - current_low_battery:
+            async_delete_issue(self.hass, DOMAIN, f"low_battery_{zone_num}")
+        self.__low_battery_zones = current_low_battery
 
         return {
             "status": data,

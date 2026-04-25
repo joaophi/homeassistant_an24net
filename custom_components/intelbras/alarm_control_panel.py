@@ -35,7 +35,7 @@ async def async_setup_entry(
     async_add_entities([AMTAlarm(config_entry.runtime_data, config_entry)])
 
 
-class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # type: ignore[misc]
+class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(
         self, coordinator: AMTCoordinator, config_entry: ConfigEntry[AMTCoordinator]
     ) -> None:
@@ -44,20 +44,22 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":"))
         self._attr_has_entity_name = True
         self._attr_name = None
-        status = coordinator.data["status"]
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._attr_unique_id)},
             connections={(CONNECTION_NETWORK_MAC, self._attr_unique_id)},
             name=coordinator.data["messages"]["name"],
             manufacturer="Intelbras",
             model="AN-24 Net",
-            sw_version=str(status["version"]),
+            sw_version=str(coordinator.data["status"]["version"]),
         )
+        self._apply_state()
 
-        require_code = config_entry.options.get(CONF_REQUIRE_CODE, True)
+    def _apply_state(self) -> None:
+        require_code = self._config_entry.options.get(CONF_REQUIRE_CODE, True)
         self._attr_code_format = CodeFormat.NUMBER if require_code else None
         self._attr_code_arm_required = require_code
 
+        status = self.coordinator.data["status"]
         stay = any(zone["enabled"] and zone["stay"] for zone in status["zones"])
         features = (
             AlarmControlPanelEntityFeature.ARM_AWAY
@@ -137,28 +139,5 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # t
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        require_code = self._config_entry.options.get(CONF_REQUIRE_CODE, True)
-        self._attr_code_format = CodeFormat.NUMBER if require_code else None
-        self._attr_code_arm_required = require_code
-
-        status = self.coordinator.data["status"]
-
-        stay = any(zone["enabled"] and zone["stay"] for zone in status["zones"])
-        features = (
-            AlarmControlPanelEntityFeature.ARM_AWAY
-            | AlarmControlPanelEntityFeature.TRIGGER
-        )
-        if stay:
-            features |= AlarmControlPanelEntityFeature.ARM_HOME
-        self._attr_supported_features = features
-
-        if status["sirenTriggered"]:
-            self._attr_alarm_state = AlarmControlPanelState.TRIGGERED
-        elif status["partitionAArmed"]:
-            self._attr_alarm_state = AlarmControlPanelState.ARMED_AWAY
-        elif status["partitionBArmed"]:
-            self._attr_alarm_state = AlarmControlPanelState.ARMED_HOME
-        else:
-            self._attr_alarm_state = AlarmControlPanelState.DISARMED
-
+        self._apply_state()
         self.async_write_ha_state()
