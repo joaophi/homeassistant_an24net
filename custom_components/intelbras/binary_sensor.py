@@ -14,6 +14,13 @@ from .coordinator import AMTCoordinator
 
 PARALLEL_UPDATES = 0
 
+ZONE_PROPS: list[tuple[str, BinarySensorDeviceClass | None, EntityCategory | None]] = [
+    ("open", BinarySensorDeviceClass.OPENING, None),
+    ("violated", BinarySensorDeviceClass.PROBLEM, EntityCategory.DIAGNOSTIC),
+    ("stay", None, EntityCategory.DIAGNOSTIC),
+    ("low_battery", BinarySensorDeviceClass.BATTERY, EntityCategory.DIAGNOSTIC),
+]
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -36,29 +43,16 @@ async def async_setup_entry(
         for i in new_devices:
             async_add_entities(
                 AMTSensor(config_entry.runtime_data, i, prop, device_class, category)
-                for prop, device_class, category in [
-                    ("open", BinarySensorDeviceClass.OPENING, None),
-                    (
-                        "violated",
-                        BinarySensorDeviceClass.PROBLEM,
-                        EntityCategory.DIAGNOSTIC,
-                    ),
-                    ("stay", None, EntityCategory.DIAGNOSTIC),
-                    (
-                        "low_battery",
-                        BinarySensorDeviceClass.BATTERY,
-                        EntityCategory.DIAGNOSTIC,
-                    ),
-                ]
+                for prop, device_class, category in ZONE_PROPS
             )
 
     _check_device()
-    # config_entry.async_on_unload(
-    #     config_entry.runtime_data.async_add_listener(_check_device)
-    # )
+    config_entry.async_on_unload(
+        config_entry.runtime_data.async_add_listener(_check_device)
+    )
 
 
-class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type: ignore[misc]
+class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(self, coordinator: AMTCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_energy"
@@ -81,7 +75,7 @@ class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  #
         self.async_write_ha_state()
 
 
-class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type: ignore[misc]
+class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(
         self,
         coordinator: AMTCoordinator,
@@ -108,11 +102,14 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # type:
             self._attr_name = None
         self._attr_device_class = device_class
         self._attr_entity_category = category
-        self._attr_is_on = coordinator.data["status"]["zones"][index][property]
+        zone_state = coordinator.data["status"]["zones"][index]
+        self._attr_is_on = zone_state[property]
+        self._attr_available = zone_state["enabled"]
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         state = self.coordinator.data["status"]["zones"][self._index]
         self._attr_is_on = state[self._property]
+        self._attr_available = state["enabled"]
         self.async_write_ha_state()

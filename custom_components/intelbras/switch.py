@@ -41,12 +41,12 @@ async def async_setup_entry(
             async_add_entities([AMTAnnulledSwitch(config_entry.runtime_data, i)])
 
     _check_device()
-    # config_entry.async_on_unload(
-    #     config_entry.runtime_data.async_add_listener(_check_device)
-    # )
+    config_entry.async_on_unload(
+        config_entry.runtime_data.async_add_listener(_check_device)
+    )
 
 
-class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ignore[misc]
+class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(self, coordinator: AMTCoordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_pgm"
@@ -80,7 +80,7 @@ class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ig
         self.async_write_ha_state()
 
 
-class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ignore[misc]
+class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(self, coordinator: AMTCoordinator, index: int) -> None:
         super().__init__(coordinator, context=index)
         mac = format_mac(coordinator.client.mac.hex(":"))
@@ -96,7 +96,9 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # typ
             via_device=(DOMAIN, mac),
         )
 
-        self._attr_is_on = coordinator.data["status"]["zones"][index]["annulled"]
+        zone_state = coordinator.data["status"]["zones"][index]
+        self._attr_is_on = zone_state["annulled"]
+        self._attr_available = zone_state["enabled"]
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
@@ -128,10 +130,11 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # typ
         """Handle updated data from the coordinator."""
         state = self.coordinator.data["status"]["zones"][self._index]
         self._attr_is_on = state["annulled"]
+        self._attr_available = state["enabled"]
         self.async_write_ha_state()
 
 
-class AMTDisableUpstreamSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # type: ignore[misc]
+class AMTDisableUpstreamSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     """Switch to disable proxy upstream push forwarding to Intelbras cloud."""
 
     def __init__(self, coordinator: AMTCoordinator) -> None:
