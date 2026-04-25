@@ -62,7 +62,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         self.__events: list[EventRecord] = []
         self.__last_failed = False
         self.__messages_last_sync = 0.0
-        self.__low_battery_zones: set[int] = set()
+        self.__low_battery_zones: set[int] | None = None
         self.client.on_push = self._handle_push
 
     @callback
@@ -167,9 +167,12 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         )
 
     def _scan_unresolved_issues(self, enabled_zones: set[int]) -> None:
-        """Scan the ring buffer for unresolved RF failures, battery, and system issues."""
+        """Scan the ring buffer for unresolved RF and system issues.
+
+        low_battery is reconciled directly from the live status bitmask in
+        _async_update_data, so no ring-buffer scan is needed for it.
+        """
         rf_status: dict[int, str] = {}
-        battery_status: dict[int, str] = {}
         system_battery: str | None = None
 
         for event in self.__events:  # newest first
@@ -187,19 +190,10 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
                 and zone not in rf_status
             ):
                 rf_status[zone] = event_type
-            if (
-                event_type in ("low_battery", "battery_restore")
-                and zone not in battery_status
-            ):
-                battery_status[zone] = event_type
 
         for zone, event_type in rf_status.items():
             if event_type == "rf_supervision_failure" and zone in enabled_zones:
                 self._create_zone_issue("rf_supervision_failure", zone)
-
-        for zone, event_type in battery_status.items():
-            if event_type == "low_battery" and zone in enabled_zones:
-                self._create_zone_issue("low_battery", zone)
 
         if system_battery == "system_battery_low":
             async_create_issue(
@@ -269,10 +263,17 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             for i, zone in enumerate(data["zones"])
             if zone["enabled"] and zone["low_battery"]
         }
-        for zone_num in current_low_battery - self.__low_battery_zones:
-            self._create_zone_issue("low_battery", zone_num)
-        for zone_num in self.__low_battery_zones - current_low_battery:
-            async_delete_issue(self.hass, DOMAIN, f"low_battery_{zone_num}")
+        if self.__low_battery_zones is None:
+            for zone_num in range(1, 25):
+                if zone_num not in current_low_battery:
+                    async_delete_issue(self.hass, DOMAIN, f"low_battery_{zone_num}")
+            for zone_num in current_low_battery:
+                self._create_zone_issue("low_battery", zone_num)
+        else:
+            for zone_num in current_low_battery - self.__low_battery_zones:
+                self._create_zone_issue("low_battery", zone_num)
+            for zone_num in self.__low_battery_zones - current_low_battery:
+                async_delete_issue(self.hass, DOMAIN, f"low_battery_{zone_num}")
         self.__low_battery_zones = current_low_battery
 
         return {
