@@ -1,5 +1,5 @@
 # Install uv
-FROM python:3.13-bookworm AS builder
+FROM python:3.13-alpine AS builder
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
@@ -21,7 +21,7 @@ COPY custom_components/intelbras/protocol.py /app/src/an24net/protocol.py
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --frozen --no-editable
 
-FROM python:3.13-bookworm
+FROM python:3.13-alpine
 
 ENV PYTHONOPTIMIZE=2
 WORKDIR /app
