@@ -13,7 +13,7 @@ from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
-    OptionsFlowWithConfigEntry,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_PIN, CONF_PORT
 from homeassistant.core import callback
@@ -55,7 +55,7 @@ class AN24NetConfigFlow(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         """Get the options flow handler."""
-        return AN24NetOptionsFlow(config_entry)
+        return AN24NetOptionsFlow()
 
     async def _test_connection(
         self, host: str, port: int, mac: str, pin: str
@@ -159,7 +159,7 @@ class AN24NetConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class AN24NetOptionsFlow(OptionsFlowWithConfigEntry):
+class AN24NetOptionsFlow(OptionsFlowWithReload):
     """Handle options for Alarme Intelbras."""
 
     async def async_step_init(
@@ -175,7 +175,7 @@ class AN24NetOptionsFlow(OptionsFlowWithConfigEntry):
                 {
                     vol.Required(
                         CONF_REQUIRE_CODE,
-                        default=self.options.get(CONF_REQUIRE_CODE, True),
+                        default=self.config_entry.options.get(CONF_REQUIRE_CODE, True),
                     ): bool,
                 }
             ),

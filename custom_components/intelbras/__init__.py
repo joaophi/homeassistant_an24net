@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from .coordinator import AMTCoordinator
 from .protocol import ClientAMT
@@ -29,8 +30,15 @@ async def async_setup_entry(
     )
     entry.async_create_background_task(hass, client.run(), "client.run")
 
-    entry.runtime_data = AMTCoordinator(hass, client)
-    await entry.runtime_data.async_config_entry_first_refresh()
+    coordinator = AMTCoordinator(hass, client)
+    entry.runtime_data = coordinator
+    await coordinator.async_config_entry_first_refresh()
+
+    # Register the panel up front so zone devices can link to it by device id.
+    hub = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, **coordinator.device_info
+    )
+    coordinator.hub_device_id = hub.id
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
