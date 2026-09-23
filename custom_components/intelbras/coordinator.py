@@ -246,8 +246,11 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             for zone, event_type in rf_status.items()
             if event_type == "rf_supervision_failure" and zone in enabled_zones
         }
-        for zone in self.rf_failure_zones:
-            self._create_zone_issue("rf_supervision_failure", zone)
+        for zone in range(1, 25):
+            if zone in self.rf_failure_zones:
+                self._create_zone_issue("rf_supervision_failure", zone)
+            else:
+                async_delete_issue(self.hass, DOMAIN, f"rf_supervision_failure_{zone}")
 
         if system_battery == "system_battery_low":
             async_create_issue(
@@ -258,6 +261,8 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
                 severity=IssueSeverity.WARNING,
                 translation_key="system_battery_low",
             )
+        else:
+            async_delete_issue(self.hass, DOMAIN, "system_battery_low")
 
     async def _sync_messages(self) -> None:
         """Fetch device name and zone labels from the panel."""
