@@ -5,7 +5,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -49,15 +48,10 @@ async def async_setup_entry(
 class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(self, coordinator: AMTCoordinator) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_pgm"
+        self._attr_unique_id = f"{coordinator.mac}_pgm"
         self._attr_has_entity_name = True
         self._attr_translation_key = "pgm"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, format_mac(coordinator.client.mac.hex(":")))},
-            name=coordinator.data["messages"]["name"],
-            manufacturer="Intelbras",
-            model="AN-24 Net",
-        )
+        self._attr_device_info = coordinator.device_info
 
         self._attr_is_on = coordinator.data["status"]["pgm"]
 
@@ -83,18 +77,12 @@ class AMTPGMSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyright:
 class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(self, coordinator: AMTCoordinator, index: int) -> None:
         super().__init__(coordinator, context=index)
-        mac = format_mac(coordinator.client.mac.hex(":"))
-        zone = coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}"
         self._index = index
-        self._attr_unique_id = f"{mac}_zone_{index + 1:02}_annulled"
+        self._attr_unique_id = f"{coordinator.mac}_zone_{index + 1:02}_annulled"
         self._attr_has_entity_name = True
         self._attr_translation_key = "annulled"
         self._attr_entity_category = EntityCategory.CONFIG
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{mac}_zone_{index + 1:02}")},
-            name=zone,
-            via_device=(DOMAIN, mac),
-        )
+        self._attr_device_info = coordinator.zone_device_info(index)
 
         self._attr_is_on = coordinator.data["status"]["zones"][index]["annulled"]
         self._attr_available = coordinator.zone_available(index)
@@ -138,17 +126,11 @@ class AMTDisableUpstreamSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):
 
     def __init__(self, coordinator: AMTCoordinator) -> None:
         super().__init__(coordinator)
-        mac = format_mac(coordinator.client.mac.hex(":"))
-        self._attr_unique_id = f"{mac}_disable_upstream"
+        self._attr_unique_id = f"{coordinator.mac}_disable_upstream"
         self._attr_has_entity_name = True
         self._attr_translation_key = "disable_upstream"
         self._attr_entity_category = EntityCategory.CONFIG
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, mac)},
-            name=coordinator.data["messages"]["name"],
-            manufacturer="Intelbras",
-            model="AN-24 Net",
-        )
+        self._attr_device_info = coordinator.device_info
         self._attr_is_on = not coordinator.data["status"]["upstream_push"]
 
     def _check_proxy(self) -> None:

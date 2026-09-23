@@ -10,11 +10,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PIN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.device_registry import (
-    CONNECTION_NETWORK_MAC,
-    DeviceInfo,
-    format_mac,
-)
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -41,17 +36,10 @@ class AMTAlarm(CoordinatorEntity[AMTCoordinator], AlarmControlPanelEntity):  # p
     ) -> None:
         super().__init__(coordinator)
         self._config_entry = config_entry
-        self._attr_unique_id = format_mac(coordinator.client.mac.hex(":"))
+        self._attr_unique_id = coordinator.mac
         self._attr_has_entity_name = True
         self._attr_name = None
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, self._attr_unique_id)},
-            connections={(CONNECTION_NETWORK_MAC, self._attr_unique_id)},
-            name=coordinator.data["messages"]["name"],
-            manufacturer="Intelbras",
-            model="AN-24 Net",
-            sw_version=str(coordinator.data["status"]["version"]),
-        )
+        self._attr_device_info = coordinator.device_info
         self._apply_state()
 
     def _apply_state(self) -> None:

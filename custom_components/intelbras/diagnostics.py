@@ -19,4 +19,6 @@ async def async_get_config_entry_diagnostics(
     return {
         "status": coordinator.data["status"],
         "messages": coordinator.data["messages"],
+        "rf_failure_zones": sorted(coordinator.rf_failure_zones),
+        "events": coordinator.events,
     }

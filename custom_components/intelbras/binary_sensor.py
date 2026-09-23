@@ -5,11 +5,9 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo, format_mac
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
 from .coordinator import AMTCoordinator
 
 PARALLEL_UPDATES = 0
@@ -55,13 +53,8 @@ async def async_setup_entry(
 class AMTEnergySensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     def __init__(self, coordinator: AMTCoordinator) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = format_mac(coordinator.client.mac.hex(":")) + "_energy"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, format_mac(coordinator.client.mac.hex(":")))},
-            name=coordinator.data["messages"]["name"],
-            manufacturer="Intelbras",
-            model="AN-24 Net",
-        )
+        self._attr_unique_id = f"{coordinator.mac}_energy"
+        self._attr_device_info = coordinator.device_info
         self._attr_device_class = BinarySensorDeviceClass.PLUG
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_has_entity_name = True
@@ -85,16 +78,10 @@ class AMTSensor(CoordinatorEntity[AMTCoordinator], BinarySensorEntity):  # pyrig
         category: EntityCategory | None,
     ) -> None:
         super().__init__(coordinator, context=index)
-        mac = format_mac(coordinator.client.mac.hex(":"))
-        zone = coordinator.data["messages"]["zones"][index] or f"Zone {index + 1:02}"
         self._index = index
         self._property = property
-        self._attr_unique_id = f"{mac}_zone_{index + 1:02}_{property}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{mac}_zone_{index + 1:02}")},
-            name=zone,
-            via_device=(DOMAIN, mac),
-        )
+        self._attr_unique_id = f"{coordinator.mac}_zone_{index + 1:02}_{property}"
+        self._attr_device_info = coordinator.zone_device_info(index)
         self._attr_has_entity_name = True
         if property != "open":
             self._attr_translation_key = property

@@ -2,8 +2,6 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from enum import Enum
-from functools import reduce
-from operator import xor
 from typing import TypedDict
 
 START_COMMAND = 0x94
@@ -571,7 +569,10 @@ def sync_data(type: int, indexes: bytes = b"\x00") -> bytes:
 
 
 def checksum(data: bytes) -> int:
-    return reduce(xor, data, 0) ^ 0xFF
+    result = 0
+    for byte in data:
+        result ^= byte
+    return result ^ 0xFF
 
 
 class ChecksumError(Exception):

@@ -10,6 +10,11 @@ from typing import TypedDict
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.device_registry import (
+    CONNECTION_NETWORK_MAC,
+    DeviceInfo,
+    format_mac,
+)
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
     async_create_issue,
@@ -64,6 +69,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         self.__messages_last_sync = 0.0
         self.__low_battery_zones: set[int] | None = None
         self.rf_failure_zones: set[int] = set()
+        self.hub_device_id: str | None = None
         self.client.on_push = self._handle_push
 
     @callback
@@ -113,6 +119,38 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             return
 
         self.async_set_updated_data(self.data)
+
+    @property
+    def events(self) -> list[EventRecord]:
+        """Last fetched ring buffer contents, newest first."""
+        return self.__events
+
+    @property
+    def mac(self) -> str:
+        """Formatted MAC address, used as the hub device identifier."""
+        return format_mac(self.client.mac.hex(":"))
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Device info for the alarm panel itself."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.mac)},
+            connections={(CONNECTION_NETWORK_MAC, self.mac)},
+            name=self.data["messages"]["name"],
+            manufacturer="Intelbras",
+            model="AN-24 Net",
+            sw_version=str(self.data["status"]["version"]),
+        )
+
+    def zone_device_info(self, index: int) -> DeviceInfo:
+        """Device info for a zone (0-based index), linked to the panel."""
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{self.mac}_zone_{index + 1:02}")},
+            name=self.data["messages"]["zones"][index] or f"Zone {index + 1:02}",
+        )
+        if self.hub_device_id is not None:
+            device_info["via_device_id"] = self.hub_device_id
+        return device_info
 
     def zone_available(self, index: int) -> bool:
         """Whether a zone (0-based index) is enabled and reporting over RF."""

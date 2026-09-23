@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-from homeassistant import data_entry_flow
-from homeassistant.components.repairs import RepairsFlow
+from homeassistant.components.repairs import RepairsFlow, RepairsFlowResult
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PIN
 from homeassistant.core import HomeAssistant
@@ -29,13 +28,13 @@ class BurglaryRepairFlow(RepairsFlow):
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> data_entry_flow.FlowResult:
+    ) -> RepairsFlowResult:
         """Handle the disarm step."""
         if not self._config_entry.options.get(CONF_REQUIRE_CODE, True):
             try:
                 await self._coordinator.client.disarm(self._config_entry.data[CONF_PIN])
                 return self.async_create_entry(data={})
-            except (WrongPasswordError, Exception):
+            except Exception:
                 pass
 
         errors: dict[str, str] = {}
