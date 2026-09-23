@@ -152,11 +152,13 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             device_info["via_device_id"] = self.hub_device_id
         return device_info
 
+    def zone_enabled(self, index: int) -> bool:
+        """Whether a zone (0-based index) is enabled on the panel."""
+        return self.data["status"]["zones"][index]["enabled"]
+
     def zone_available(self, index: int) -> bool:
         """Whether a zone (0-based index) is enabled and reporting over RF."""
-        if not self.data["status"]["zones"][index]["enabled"]:
-            return False
-        return (index + 1) not in self.rf_failure_zones
+        return self.zone_enabled(index) and (index + 1) not in self.rf_failure_zones
 
     def _zone_name(self, zone: int) -> str:
         """Get the display name for a zone number."""
