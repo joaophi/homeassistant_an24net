@@ -63,6 +63,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         self.__last_failed = False
         self.__messages_last_sync = 0.0
         self.__low_battery_zones: set[int] | None = None
+        self.rf_failure_zones: set[int] = set()
         self.client.on_push = self._handle_push
 
     @callback
@@ -70,8 +71,11 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         """Handle a PUSH_COMMAND from the alarm panel."""
         try:
             event = parse_push_event(data)
+            rf_before = set(self.rf_failure_zones)
             self._process_repair_event(event)
             self._apply_push_to_status(event)
+            if self.rf_failure_zones != rf_before:
+                self.async_update_listeners()
         except Exception:
             _LOGGER.warning("Failed to parse push event: %s", data.hex(":"))
 
@@ -110,6 +114,12 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
 
         self.async_set_updated_data(self.data)
 
+    def zone_available(self, index: int) -> bool:
+        """Whether a zone (0-based index) is enabled and reporting over RF."""
+        if not self.data["status"]["zones"][index]["enabled"]:
+            return False
+        return (index + 1) not in self.rf_failure_zones
+
     def _zone_name(self, zone: int) -> str:
         """Get the display name for a zone number."""
         if 1 <= zone <= 24:
@@ -123,8 +133,10 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         zone = event["zone"]
 
         if event_type == "rf_supervision_failure" and zone:
+            self.rf_failure_zones.add(zone)
             self._create_zone_issue("rf_supervision_failure", zone)
         elif event_type == "rf_supervision_restore" and zone:
+            self.rf_failure_zones.discard(zone)
             async_delete_issue(self.hass, DOMAIN, f"rf_supervision_failure_{zone}")
         elif event_type == "system_battery_low":
             async_create_issue(
@@ -191,9 +203,13 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             ):
                 rf_status[zone] = event_type
 
-        for zone, event_type in rf_status.items():
-            if event_type == "rf_supervision_failure" and zone in enabled_zones:
-                self._create_zone_issue("rf_supervision_failure", zone)
+        self.rf_failure_zones = {
+            zone
+            for zone, event_type in rf_status.items()
+            if event_type == "rf_supervision_failure" and zone in enabled_zones
+        }
+        for zone in self.rf_failure_zones:
+            self._create_zone_issue("rf_supervision_failure", zone)
 
         if system_battery == "system_battery_low":
             async_create_issue(
