@@ -96,9 +96,8 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyr
             via_device=(DOMAIN, mac),
         )
 
-        zone_state = coordinator.data["status"]["zones"][index]
-        self._attr_is_on = zone_state["annulled"]
-        self._attr_available = zone_state["enabled"]
+        self._attr_is_on = coordinator.data["status"]["zones"][index]["annulled"]
+        self._attr_available = coordinator.zone_available(index)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
@@ -130,7 +129,7 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyr
         """Handle updated data from the coordinator."""
         state = self.coordinator.data["status"]["zones"][self._index]
         self._attr_is_on = state["annulled"]
-        self._attr_available = state["enabled"]
+        self._attr_available = self.coordinator.zone_available(self._index)
         self.async_write_ha_state()
 
 
