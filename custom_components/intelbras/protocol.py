@@ -516,7 +516,7 @@ def parse_event_record(rec: bytes) -> EventRecord:
         ),
         "qualifier": q,
         "code": code,
-        "zone": rec[12] if rec[12] != 0x0A else 0,
+        "zone": bcd(rec[12]) if rec[12] != 0x0A else 0,
         "ring_index": rec[1],
     }
 

@@ -222,7 +222,7 @@ Response: 15 bytes per event:
 [9]  = CID event code digits 2-3 (BCD, 0xA = 0)
 [10] = 0xAA (constant)
 [11] = 0x0A (constant)
-[12] = zone number (0x0A = system/no zone)
+[12] = BCD zone number (0x11 = zone 11; 0x0A = system/no zone)
 [13] = zone number (duplicate)
 [14] = 0x00 (terminator)
 ```
