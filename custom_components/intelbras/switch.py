@@ -85,7 +85,15 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyr
         self._attr_device_info = coordinator.zone_device_info(index)
 
         self._attr_is_on = coordinator.data["status"]["zones"][index]["annulled"]
-        self._attr_available = coordinator.zone_available(index)
+
+    @property
+    def available(self) -> bool:  # pyright: ignore[reportIncompatibleVariableOverride]
+        """Return if the zone is enabled.
+
+        Deliberately ignores RF supervision: bypassing a zone that lost RF
+        communication is exactly what you want to do while it is down.
+        """
+        return super().available and self.coordinator.zone_enabled(self._index)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
@@ -117,7 +125,6 @@ class AMTAnnulledSwitch(CoordinatorEntity[AMTCoordinator], SwitchEntity):  # pyr
         """Handle updated data from the coordinator."""
         state = self.coordinator.data["status"]["zones"][self._index]
         self._attr_is_on = state["annulled"]
-        self._attr_available = self.coordinator.zone_available(self._index)
         self.async_write_ha_state()
 
 
