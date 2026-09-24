@@ -38,6 +38,7 @@ class AlarmConnection:
         self._lock = asyncio.Lock()
         self._pending: asyncio.Future[tuple[int, bytes]] | None = None
         self.upstream_enabled = True
+        self.closed = asyncio.Event()
 
     async def request(self, command: int, data: bytes) -> tuple[int, bytes]:
         """Send a command to the alarm and wait for its response.
@@ -62,6 +63,9 @@ class AlarmConnection:
 
 
 OPEN_CONNECTIONS: dict[bytes, AlarmConnection] = {}
+
+# The panel pings every ~60s; drop the connection if it goes silent for longer.
+ALARM_IDLE_TIMEOUT = 180
 _conn_ids = count(1)
 
 
@@ -134,9 +138,17 @@ async def handle(
                         )
                         await send_command(writer, command, response)
 
+                async def __watch_alarm() -> None:
+                    # Drop the client when its alarm connection goes away so it
+                    # reconnects and binds to the alarm's new connection.
+                    await alarm.closed.wait()
+                    logger.warning("alarm disconnected, closing client")
+                    raise ConnectionError("alarm disconnected")
+
                 async with asyncio.TaskGroup() as tg:
                     tg.create_task(__handle_push())
                     tg.create_task(__handle_server())
+                    tg.create_task(__watch_alarm())
             finally:
                 alarm.on_push.remove(cb)
 
@@ -160,12 +172,18 @@ async def handle(
             )
 
             alarm = AlarmConnection(writer)
+            if old := OPEN_CONNECTIONS.get(mac):
+                # Panel reconnected (e.g. after a network drop) while the old
+                # connection is still half-open; tear the stale one down.
+                logger.warning("replacing stale alarm connection")
+                old.writer.close()
             OPEN_CONNECTIONS[mac] = alarm
             try:
                 tg.create_task(__upstream(alarm, mac, version))
 
                 while True:
-                    command, data = await read_command(reader)
+                    async with asyncio.timeout(ALARM_IDLE_TIMEOUT):
+                        command, data = await read_command(reader)
 
                     if command == PUSH_COMMAND:
                         logger.info(
@@ -198,7 +216,10 @@ async def handle(
                         )
                         await send_command(writer, OK)
             finally:
-                OPEN_CONNECTIONS.pop(mac)
+                alarm.closed.set()
+                # Only unregister ourselves; a newer connection may own the slot.
+                if OPEN_CONNECTIONS.get(mac) is alarm:
+                    del OPEN_CONNECTIONS[mac]
 
         async def __downstream() -> None:
             while True:
