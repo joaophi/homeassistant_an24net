@@ -17,6 +17,9 @@ XOR_COMMAND = 0xFB
 CONNECTION_COMMAND = 0xE5
 PROXY_COMMAND = 0xF2
 
+# Seconds without any data from the panel before the connection is dropped
+READ_IDLE_TIMEOUT = 30
+
 # Proxy subcommands
 PROXY_UPSTREAM_PUSH = 0x01
 
@@ -641,7 +644,11 @@ class ClientAMT:
     async def run(self) -> None:
         async def read(reader: asyncio.StreamReader) -> None:
             while True:
-                command, data = await read_command(reader)
+                # The coordinator polls every few seconds, so a long silence
+                # means the connection is dead (e.g. half-open after a network
+                # drop). Raise so the TaskGroup exits and we reconnect.
+                async with asyncio.timeout(READ_IDLE_TIMEOUT):
+                    command, data = await read_command(reader)
                 if command == PUSH_COMMAND and self.on_push is not None:
                     self.on_push(data)
                 for queue in self._receive:
@@ -651,11 +658,16 @@ class ClientAMT:
         async def write(writer: asyncio.StreamWriter) -> None:
             while True:
                 command, data, future = await self._send.get()
+                if future.done():
+                    # Request already timed out/cancelled; don't send stale commands.
+                    continue
                 try:
                     await send_command(writer, command, data)
-                    future.set_result(None)
+                    if not future.done():
+                        future.set_result(None)
                 except Exception as ex:
-                    future.set_exception(ex)
+                    if not future.done():
+                        future.set_exception(ex)
                     raise
 
         while True:
@@ -687,7 +699,8 @@ class ClientAMT:
             except Exception as ex:
                 while not self._send.empty():
                     _, _, future = self._send.get_nowait()
-                    future.set_exception(ex)
+                    if not future.done():
+                        future.set_exception(ex)
             finally:
                 if writer is not None:
                     writer.close()
