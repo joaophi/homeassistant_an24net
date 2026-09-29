@@ -54,7 +54,10 @@ ERR_OPEN_ZONE = 0xE4
 
 
 def arm(*, stay: bool) -> bytes:
-    return b"\x41\x50" if stay else b"\x41"
+    # Stay arm is "arm partition B" (41 42 on the wire), as sent by the official
+    # app; the panel then reports only partition B armed. 41 41 50 (partition A
+    # + stay modifier) is accepted but arms fully on the ANM 24 Net G2.
+    return b"\x42" if stay else b"\x41"
 
 
 def panic(*, audible: bool) -> bytes:
@@ -478,6 +481,7 @@ CID_EVENT_TYPES: dict[tuple[int, int], str] = {
     (3, 384): "battery_restore",
     (1, 401): "disarm",
     (3, 401): "arm",
+    (3, 456): "arm_stay",  # partial arm
     (1, 422): "pgm_activate",
     (3, 422): "pgm_deactivate",
 }
@@ -497,6 +501,7 @@ SYSTEM_EVENT_TYPES = [
     "system_battery_low",
     "system_battery_restore",
     "arm",
+    "arm_stay",
     "disarm",
 ]
 

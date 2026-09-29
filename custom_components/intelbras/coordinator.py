@@ -94,6 +94,9 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
 
         if event_type == "arm":
             status["partitionAArmed"] = True
+        elif event_type == "arm_stay":
+            status["partitionAArmed"] = False
+            status["partitionBArmed"] = True
         elif event_type == "disarm":
             status["partitionAArmed"] = False
             status["partitionBArmed"] = False
