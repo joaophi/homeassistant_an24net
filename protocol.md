@@ -64,14 +64,14 @@ Sent by clients with authentication:
 
 ### Inner commands
 
-The inner command byte is 0x41 (ARM) or 0x44 (DISARM). For the AN-24 Net, arm/disarm
-always target partition A explicitly. A stay modifier (0x50) changes full arm to stay arm.
+The inner command byte is 0x41 (ARM) or 0x44 (DISARM). Full arm targets partition A;
+stay (partial) arm targets partition B, which is what the official app sends.
 
 | Inner bytes | Name | Description |
 |-------------|------|-------------|
 | `0x41 0x41` | ARM | Arm partition A (full arm — sets both A and B flags) |
-| `0x41 0x41 0x50` | ARM STAY | Arm partition A with stay (sets only B flag) |
-| `0x41 0x42` | ARM B | Arm partition B (alternative stay arm, used by G2) |
+| `0x41 0x42` | ARM STAY | Arm partition B = stay/partial arm (sets only B flag; sent by the official app) |
+| `0x41 0x41 0x50` | ARM A + STAY | Accepted, but performs a **full** arm on the ANM 24 Net G2 (see below) |
 | `0x42` + zone mask | BYPASS | Zone bitmask (3 bytes, little-endian) |
 | `0x44` | DISARM | Disarm central (AN-24 Net G2, used by this integration) |
 | `0x44 0x41` | DISARM A | Disarm partition A (base AN-24 Net in APK) |
@@ -81,6 +81,24 @@ always target partition A explicitly. A stay modifier (0x50) changes full arm to
 | `0x50 0x44 0x31` | PGM OFF | Turn PGM 1 off |
 | `0x5A` | STATUS | Request status (54 bytes response) |
 | `0x00` + payload | MESSAGES | Sync/event data (see below) |
+
+#### Partial (stay) arm — captured from the official app (ANM 24 Net G2)
+
+Traffic of the Intelbras app (AMT Mobile), captured on an ANM 24 Net G2 (status
+byte `0x25`) by relaying it through a proxy:
+
+```
+→ 09 e9 21 ** ** ** ** 41 42 21 17   ARM partition B    → 02 e9 fe ea (OK)
+  STATUS byte 21 = 0x02 (only partition B)             → stay armed
+→ 09 e9 21 ** ** ** ** 44 41 21 11   DISARM partition A → 02 e9 fe ea (OK)
+```
+
+- On this panel `0x41 0x41 0x50` and `0x41 0x41 0x42` are both acknowledged but
+  result in a full arm (status byte 21 = `0x03`).
+- The event log / push events record partial arm as Contact ID **3456** (full arm
+  3401, disarm 1401).
+- The app itself connects to `amt.intelbras.com.br:9015` (`XOR` → key → encrypted
+  connection frame → `e6 31 2e 30`); the MY_HOME frames are the same as on 9009.
 
 #### Arm state semantics
 
@@ -93,7 +111,7 @@ The panel uses partition flags to encode arm mode (not actual partition separati
 | 0 | 0 | Disarmed |
 
 - **ARM** (`0x41 0x41`): sets both partition A and B → fully armed
-- **ARM STAY** (`0x41 0x41 0x50`): sets only partition B → stay armed
+- **ARM STAY** (`0x41 0x42`): sets only partition B → stay armed
 
 #### Protocol constants (from APK decompilation)
 
@@ -254,6 +272,7 @@ def bcd(b: int) -> int:
 | 301 | Falha na rede elétrica | Rede elétrica presente |
 | 384 | Bateria baixa (RF sensor) | Bateria recuperada |
 | 401 | Desarme / Disarm | Arme / Arm |
+| 456 | — | Arme parcial / Partial arm |
 
 ## Proxy Command (0xF2)
 
