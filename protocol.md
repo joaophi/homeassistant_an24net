@@ -64,14 +64,14 @@ Sent by clients with authentication:
 
 ### Inner commands
 
-The inner command byte is 0x41 (ARM) or 0x44 (DISARM). For the AN-24 Net, arm/disarm
-always target partition A explicitly. A stay modifier (0x50) changes full arm to stay arm.
+The inner command byte is 0x41 (ARM) or 0x44 (DISARM). Full arm targets partition A;
+stay (partial) arm targets partition B, which is what the official app sends.
 
 | Inner bytes | Name | Description |
 |-------------|------|-------------|
 | `0x41 0x41` | ARM | Arm partition A (full arm — sets both A and B flags) |
-| `0x41 0x41 0x50` | ARM STAY | Arm partition A with stay (sets only B flag) |
-| `0x41 0x42` | ARM B | Arm partition B (alternative stay arm, used by G2) |
+| `0x41 0x42` | ARM STAY | Arm partition B = stay/partial arm (sets only B flag; sent by the official app) |
+| `0x41 0x41 0x50` | ARM A + STAY | Accepted, but performs a **full** arm on the ANM 24 Net G2 |
 | `0x42` + zone mask | BYPASS | Zone bitmask (3 bytes, little-endian) |
 | `0x44` | DISARM | Disarm central (AN-24 Net G2, used by this integration) |
 | `0x44 0x41` | DISARM A | Disarm partition A (base AN-24 Net in APK) |
@@ -93,7 +93,7 @@ The panel uses partition flags to encode arm mode (not actual partition separati
 | 0 | 0 | Disarmed |
 
 - **ARM** (`0x41 0x41`): sets both partition A and B → fully armed
-- **ARM STAY** (`0x41 0x41 0x50`): sets only partition B → stay armed
+- **ARM STAY** (`0x41 0x42`): sets only partition B → stay armed
 
 #### Protocol constants (from APK decompilation)
 
@@ -254,6 +254,7 @@ def bcd(b: int) -> int:
 | 301 | Falha na rede elétrica | Rede elétrica presente |
 | 384 | Bateria baixa (RF sensor) | Bateria recuperada |
 | 401 | Desarme / Disarm | Arme / Arm |
+| 456 | — | Arme parcial / Partial arm |
 
 ## Proxy Command (0xF2)
 
