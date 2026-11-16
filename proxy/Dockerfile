@@ -16,6 +16,7 @@ COPY proxy/pyproject.toml proxy/uv.lock /app/
 
 # Copy shared protocol.py into the package
 COPY custom_components/intelbras/protocol.py /app/src/an24net/protocol.py
+COPY custom_components/intelbras/isec.py /app/src/an24net/isec.py
 
 # Sync the project
 RUN --mount=type=cache,target=/root/.cache/uv \
