@@ -4,6 +4,8 @@ from collections.abc import Callable
 from enum import Enum
 from typing import TypedDict
 
+from .isec import isec_to_str
+
 START_COMMAND = 0x94
 MAC_COMMAND = 0xC4
 VERSION_COMMAND = 0xC0
@@ -274,7 +276,7 @@ def command_to_str(command: int, data: bytes) -> str:
         mac_str = f": mac={data[9:15].hex(':')}" if len(data) >= 15 else ""
         return "CONNECTION" + mac_str
     if command == ISEC:
-        return "ISEC" + (f": {data.hex(':')}" if data else "")
+        return "ISEC" + (f": {isec_to_str(data)}" if data else "")
     if command == MY_HOME:
         return "MY_HOME" + (f": {my_home_to_str(data)}" if data else "")
     if command == PROXY_COMMAND:

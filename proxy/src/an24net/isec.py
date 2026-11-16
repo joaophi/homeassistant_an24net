@@ -1,0 +1,1 @@
+../../../custom_components/intelbras/isec.py
