@@ -332,7 +332,7 @@ class ZoneStatus(TypedDict):
 
 
 class Status(TypedDict):
-    version: int
+    version: str
     partitionedPanel: bool
     partitionAArmed: bool
     partitionBArmed: bool
@@ -353,7 +353,8 @@ def parse_status(data: bytes) -> Status:
     low_battery = int.from_bytes(data[38:41], byteorder="little")
 
     return {
-        "version": int(data[19]),
+        # Firmware version x.y.z at 43-45; byte 19 is always 0 on the G2.
+        "version": f"{data[43]}.{data[44]}.{data[45]}",
         "partitionedPanel": bool(data[20] & (1 << 0)),
         "partitionAArmed": bool(data[21] & (1 << 0)),
         "partitionBArmed": bool(data[21] & (1 << 1)),

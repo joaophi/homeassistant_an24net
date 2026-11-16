@@ -121,13 +121,14 @@ CMD_PARTICAO_D  = 0x44
 | 0-2 | 3 | Open zones (24-bit little-endian bitmask) |
 | 6-8 | 3 | Violated zones |
 | 12-14 | 3 | Annulled zones |
-| 19 | 1 | Version |
+| 19 | 1 | Always `0` on the ANM 24 Net G2 (not the version) |
 | 20 | 1 | Partitioned panel (bit 0) |
 | 21 | 1 | Partition A armed (bit 0), Partition B armed (bit 1) — see arm state semantics above |
 | 28 | 1 | No energy (bit 0) |
 | 30 | 1 | Battery: envoltório (bit 0), 1° nível (1), 2° nível (2), 3° nível (3), envoltório pisc (4) |
 | 37 | 1 | Siren triggered (bit 2), PGM (bit 6) |
 | 38-40 | 3 | Low battery zones |
+| 43-45 | 3 | Firmware version x.y.z (e.g. `01 00 03` = 1.0.3) |
 | 47-49 | 3 | Enabled zones |
 | 50-52 | 3 | Stay zones |
 
