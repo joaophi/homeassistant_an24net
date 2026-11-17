@@ -36,6 +36,9 @@ from .protocol import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Default poll interval. Extensions may change coordinator.update_interval.
+DEFAULT_POLL = timedelta(seconds=5)
+
 
 class Messages(TypedDict):
     name: str
@@ -57,7 +60,7 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             hass,
             _LOGGER,
             name="Alarme AMT",
-            update_interval=timedelta(seconds=5),
+            update_interval=DEFAULT_POLL,
         )
         self.client = client
         self.__messages: Messages = {
@@ -71,6 +74,15 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         self.rf_failure_zones: set[int] = set()
         self.hub_device_id: str | None = None
         self.client.on_push = self._handle_push
+
+    @callback
+    def apply_status(self, status: Status) -> None:
+        """Apply a full status obtained outside the poll (e.g. a firmware push)."""
+        # data is None until the first refresh (HA types it as always set).
+        if self.data is None:  # pyright: ignore[reportUnnecessaryComparison]
+            return
+        self._reconcile_low_battery(status)
+        self.async_set_updated_data({"status": status, "messages": self.__messages})
 
     @callback
     def _handle_push(self, data: bytes) -> None:
@@ -322,6 +334,15 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
         elif monotonic() - self.__messages_last_sync > 1800:
             await self._sync_messages()
 
+        self._reconcile_low_battery(data)
+
+        return {
+            "status": data,
+            "messages": self.__messages,
+        }
+
+    def _reconcile_low_battery(self, data: Status) -> None:
+        """Create/delete low-battery issues from the live status bitmask."""
         current_low_battery = {
             i + 1
             for i, zone in enumerate(data["zones"])
@@ -339,8 +360,3 @@ class AMTCoordinator(DataUpdateCoordinator[Data]):
             for zone_num in self.__low_battery_zones - current_low_battery:
                 async_delete_issue(self.hass, DOMAIN, f"low_battery_{zone_num}")
         self.__low_battery_zones = current_low_battery
-
-        return {
-            "status": data,
-            "messages": self.__messages,
-        }

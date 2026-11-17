@@ -9,6 +9,7 @@ from itertools import count
 
 from an24net.protocol import (
     CONN_NOT_FOUND,
+    CUSTOM_COMMANDS,
     CONN_PROXY,
     CONN_SUCCESS,
     CONNECTION_COMMAND,
@@ -104,8 +105,8 @@ async def handle(
 
                 async def __handle_push() -> None:
                     while True:
-                        _, data = await push_queue.get()
-                        await send_command(writer, PUSH_COMMAND, data)
+                        command, data = await push_queue.get()
+                        await send_command(writer, command, data)
 
                 async def __handle_server() -> None:
                     while True:
@@ -208,6 +209,15 @@ async def handle(
                     elif command == PING_COMMAND:
                         logger.info(f"← PING | {PING_COMMAND:02x}")
                         await send_command(writer, OK)
+                    elif command in CUSTOM_COMMANDS:
+                        # Extension frames (e.g. modified firmware): fan out
+                        # to clients only; no reply, never a request answer,
+                        # never forwarded upstream.
+                        logger.info(
+                            f"↑ {command_to_str(command, data)} | {frame_hex(command, data)}"
+                        )
+                        for cb in alarm.on_push:
+                            cb((command, data))
                     elif alarm.resolve(command, data):
                         pass
                     else:
@@ -275,7 +285,9 @@ async def handle(
                     async def __handle_push() -> None:
                         try:
                             while True:
-                                _, data = await push_queue.get()
+                                command, data = await push_queue.get()
+                                if command != PUSH_COMMAND:
+                                    continue  # custom frames stay local
                                 if alarm.upstream_enabled:
                                     await send_command(u_writer, PUSH_COMMAND, data)
                                 else:
