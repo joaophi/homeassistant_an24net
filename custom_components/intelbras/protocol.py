@@ -1,13 +1,10 @@
 import asyncio
 import contextlib
-import logging
 from collections.abc import Callable
 from enum import Enum
 from typing import TypedDict
 
 from .isec import isec_to_str
-
-_LOGGER = logging.getLogger(__name__)
 
 START_COMMAND = 0x94
 MAC_COMMAND = 0xC4
@@ -21,14 +18,8 @@ ISEC = 0xE7
 XOR_COMMAND = 0xFB
 CONNECTION_COMMAND = 0xE5
 PROXY_COMMAND = 0xF2
-# Reserved for extensions (e.g. modified panel firmware): unsolicited frames
-# that are never a reply to a request. The client hands them to
-# ClientAMT.custom_listeners; the proxy fans them out to clients only and
-# never forwards them to the Intelbras cloud. 0xF7 (PING) is not in the range.
-CUSTOM_COMMANDS = frozenset({0xF3, 0xF4, 0xF5, 0xF6})
 
-# Default seconds without any data from the panel before the connection is
-# dropped (ClientAMT.read_idle_timeout).
+# Seconds without any data from the panel before the connection is dropped
 READ_IDLE_TIMEOUT = 30
 
 # Proxy subcommands
@@ -277,8 +268,6 @@ def command_to_str(command: int, data: bytes) -> str:
         return "PING"
     if command == PUSH_COMMAND:
         return "PUSH" + (f": {push_event_to_str(data)}" if data else "")
-    if command in CUSTOM_COMMANDS:
-        return f"CUSTOM 0x{command:02x}" + (f": {data.hex(':')}" if data else "")
     if command == OK:
         return "OK"
     if command == XOR_COMMAND:
@@ -659,10 +648,6 @@ class ClientAMT:
         # Called when PUSH_COMMAND (0xB4) is received from the panel.
         # Set by the coordinator to parse Contact ID events and dispatch them.
         self.on_push: Callable[[bytes], None] | None = None
-        # Called for frames in CUSTOM_COMMANDS (extensions only).
-        self.custom_listeners: list[Callable[[int, bytes], None]] = []
-        # Extensions that slow down polling must raise this.
-        self.read_idle_timeout: float = READ_IDLE_TIMEOUT
 
     async def run(self) -> None:
         async def read(reader: asyncio.StreamReader) -> None:
@@ -670,18 +655,10 @@ class ClientAMT:
                 # The coordinator polls every few seconds, so a long silence
                 # means the connection is dead (e.g. half-open after a network
                 # drop). Raise so the TaskGroup exits and we reconnect.
-                async with asyncio.timeout(self.read_idle_timeout):
+                async with asyncio.timeout(READ_IDLE_TIMEOUT):
                     command, data = await read_command(reader)
                 if command == PUSH_COMMAND and self.on_push is not None:
                     self.on_push(data)
-                if command in CUSTOM_COMMANDS:
-                    # Unsolicited: never hand it to a pending request.
-                    for listener in list(self.custom_listeners):
-                        try:
-                            listener(command, data)
-                        except Exception:
-                            _LOGGER.exception("custom frame listener failed")
-                    continue
                 for queue in self._receive:
                     with contextlib.suppress(asyncio.QueueFull):
                         queue.put_nowait((command, data))

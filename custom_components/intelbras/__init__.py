@@ -7,7 +7,6 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from . import custom_firmware
 from .coordinator import AMTCoordinator
 from .protocol import ClientAMT
 
@@ -43,8 +42,6 @@ async def async_setup_entry(
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Modified-firmware features: inactive unless the panel sends custom frames.
-    entry.async_on_unload(custom_firmware.async_attach(hass, coordinator))
     return True
 
 
