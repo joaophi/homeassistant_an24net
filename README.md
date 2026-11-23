@@ -2,6 +2,10 @@
 
 Home Assistant custom integration for **Intelbras AN-24 Net** alarm systems.
 
+> **Unofficial.** This project is not affiliated with, endorsed by or supported by Intelbras S/A.
+> "Intelbras" and the Intelbras logo are trademarks of their owner and are used here only to
+> identify the compatible hardware. It exists so owners can use their own panels with Home Assistant.
+
 Communicates with the alarm panel over the AMT protocol via TCP — either through Intelbras cloud or locally via the optional proxy server.
 
 ## Features
@@ -97,3 +101,7 @@ Replace the placeholders:
 - Intelbras AN-24 Net alarm panel
 - Proxy server running on the local network (see above)
 - Router with DNAT/port forwarding capability to redirect alarm traffic
+
+## License
+
+MIT. See [LICENSE](LICENSE).
